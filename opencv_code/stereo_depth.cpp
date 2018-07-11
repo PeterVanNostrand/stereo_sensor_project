@@ -249,7 +249,7 @@ bool camera_capture(){
 				++fail_count;
 				continue;
 			}
-		}
+		}waitKey(500);
 		
 		//Decode, store, and display the frame from each camera
 		for(int i=0; i<num_cameras; ++i){

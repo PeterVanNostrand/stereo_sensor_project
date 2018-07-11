@@ -1,0 +1,23 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "/usr/local/include/opencv2/",
+                "${workspaceFolder}/**",
+                "/home/peter/ORB_SLAM2/Thirdparty/DBoW2/DBoW2/",
+                "/home/peter/ORB_SLAM2/include/",
+                "/home/peter/ORB_SLAM2",
+                "/home/peter/Pangolin/include",
+                "/home/peter/Pangolin/build/src/include",
+                "/usr/include/eigen3"
+            ],
+            "defines": [],
+            "compilerPath": "/usr/bin/g++",
+            "cStandard": "c11",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "clang-x64"
+        }
+    ],
+    "version": 4
+}
