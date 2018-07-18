@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 2.8)
 project(ORB_SLAM2)
-set(ORB_SLAM2_DIR /home/peter/ORB_SLAM2)
+set(ORB_SLAM2_DIR ~/ORB_SLAM2)
 
 IF(NOT CMAKE_BUILD_TYPE)
   SET(CMAKE_BUILD_TYPE Release)
@@ -74,7 +74,7 @@ ${ORB_SLAM2_DIR}/Thirdparty/g2o/lib/libg2o.so
 
 # Build examples
 
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR})
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/build/)
 
 add_executable(orb_live
 ${PROJECT_SOURCE_DIR}/orb_live.cpp)
