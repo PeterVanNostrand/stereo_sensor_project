@@ -5,8 +5,8 @@
 
 using namespace std;
 
-void start_mono_SLAM(camera_utilities::Monocular_Camera mono_camera);
-void start_stereo_SLAM(camera_utilities::Stereo_Camera stereo_camera);
+void start_mono_slam(camera_utilities::Monocular_Camera mono_camera);
+void start_stereo_slam(camera_utilities::Stereo_Camera stereo_camera);
 
 int main(){
     char option;
@@ -31,13 +31,13 @@ int main(){
         std::cout << "ENTER CHESSBOARD HEIGHT: ";
         std::cin >> chess_height;
         std::cout << "STARTING CALIBRATION..." << std::endl;
-        camera_utilities::Monocular_Camera mono_camera(0, "./data/mono_camera_properties.txt", {frame_width, frame_height}, fps, {chess_width, chess_height});
+        camera_utilities::Monocular_Camera mono_camera(0, "../data/mono_camera_properties.txt", {frame_width, frame_height}, fps, {chess_width, chess_height});
         std::cout << "CALIBRATION COMPLETE. LAUNCHING ORB SLAM 2..." << std::endl << std::endl;
-        mono_camera.create_orbslam_settings("./data/mono_camera.yaml");
+        mono_camera.create_orbslam_settings("../data/mono_camera.yaml");
         start_mono_slam(mono_camera);
     }
     else if (option == '2'){
-        camera_utilities::Monocular_Camera mono_camera(0, "./data/mono_camera_properties.txt");
+        camera_utilities::Monocular_Camera mono_camera(0, "../data/mono_camera_properties.txt");
         start_mono_slam(mono_camera);
     }
     else if (option == '3'){
@@ -56,13 +56,13 @@ int main(){
         std::cout << "ENTER BASELINE DISTANCE IN METERS: ";
         std::cin >>baseline;
         std::cout << "STARTING CALIBRATION..." << std::endl;
-        camera_utilities::Stereo_Camera stereo_camera(0, 1, "./data/stereo_camera_properties.txt", {frame_width,frame_height}, fps, baseline, {chess_width,chess_height});
+        camera_utilities::Stereo_Camera stereo_camera(0, 2, "../data/stereo_camera_properties.txt", {frame_width,frame_height}, fps, baseline, {chess_width,chess_height});
         std::cout << "CALIBRATION COMPLETE. LAUNCHING ORB SLAM 2..." << std::endl << std::endl;
-        stereo_camera.create_orbslam_settings("./data/stereo_camera.yaml");
+        stereo_camera.create_orbslam_settings("../data/stereo_camera.yaml");
         start_stereo_slam(stereo_camera);
     }
     else if (option == '4'){
-        camera_utilities::Stereo_Camera stereo_camera(0, 1,  "./data/stereo_camera_properties.txt");
+        camera_utilities::Stereo_Camera stereo_camera(0, 2,  "../data/stereo_camera_properties.txt");
         start_stereo_slam(stereo_camera);
     }
     else{
@@ -81,11 +81,11 @@ void start_mono_slam(camera_utilities::Monocular_Camera mono_camera){
         mono_camera.get_frame(frame);
     }
     SLAM.Shutdown();
-    SLAM.SaveKeyFrameTrajectoryTUM("./data/MonoKeyFrameTrajectory.txt");
+    SLAM.SaveKeyFrameTrajectoryTUM("../data/MonoKeyFrameTrajectory.txt");
 }
 
 void start_stereo_slam(camera_utilities::Stereo_Camera stereo_camera){
-    ORB_SLAM2::System SLAM("~/ORB_SLAM2/Vocabulary/ORBvoc.txt","./data/stereo_camera.yaml",ORB_SLAM2::System::STEREO,true);
+    ORB_SLAM2::System SLAM("~/ORB_SLAM2/Vocabulary/ORBvoc.txt","../data/stereo_camera.yaml",ORB_SLAM2::System::STEREO,true);
     cv::Mat frames[2];
     stereo_camera.get_stereo_frame_rectified(frames);
     for(unsigned long int time_stamp=0;time_stamp<500;time_stamp++){
@@ -93,5 +93,5 @@ void start_stereo_slam(camera_utilities::Stereo_Camera stereo_camera){
         stereo_camera.get_stereo_frame_rectified(frames);
     }
     SLAM.Shutdown();
-    SLAM.SaveKeyFrameTrajectoryTUM("./data/StereoKeyFrameTrajectory.txt");
+    SLAM.SaveKeyFrameTrajectoryTUM("../data/StereoKeyFrameTrajectory.txt");
 }

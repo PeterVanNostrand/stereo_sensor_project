@@ -19,12 +19,14 @@ namespace camera_utilities {
             //Constructor for camera with known intrinsic properties (matrix, dist coeffs, etc)
             Monocular_Camera(int cam_num, std::string prop_path){
                 camera = cv::VideoCapture(cam_num);
+                if(!camera.isOpened()) std::runtime_error( "ERROR CONFIGURING CAMERA" );
                 load_camera_properties(prop_path);
             }
             //Constructor for camera with unknown intrinsic properties (matrix, dist_coeffs, etc)
             //These values are found using chessboard image calibration
             Monocular_Camera(int cam_num, std::string prop_path, cv::Size frame_size, int frame_rate, cv::Size chessboard_dim){
                 camera = cv::VideoCapture(cam_num);
+                if(!camera.isOpened()) std::runtime_error( "ERROR CONFIGURING CAMERA" );
                 this->frame_size = frame_size;
                 this->frame_rate = frame_rate;
                 calibrate_camera(chessboard_dim);
@@ -110,10 +112,18 @@ namespace camera_utilities {
             cv::Mat camera_matrix;
             cv::Mat dist_coeffs;         
             void calibrate_camera(cv::Size chessboard_dim){
-                camera.set(cv::CAP_PROP_FRAME_WIDTH, frame_size.width);
-                camera.set(cv::CAP_PROP_FRAME_HEIGHT, frame_size.height);
-                camera.set(cv::CAP_PROP_FPS, frame_rate);
-                
+                { 
+                    camera.set(cv::CAP_PROP_FRAME_WIDTH, frame_size.width);
+                    camera.set(cv::CAP_PROP_FRAME_HEIGHT, frame_size.height);
+                    camera.set(cv::CAP_PROP_FPS, frame_rate);
+                    double actual_width = camera.get(cv::CAP_PROP_FRAME_WIDTH);
+                    double actual_height = camera.get(cv::CAP_PROP_FRAME_HEIGHT);
+                    double actual_fps = camera.get(cv::CAP_PROP_FPS);
+                    if(actual_width!=frame_size.width) throw std::runtime_error("WIDTH WAS " + to_string(actual_width) + "  NOT " + to_string(frame_size.width));
+                    if(actual_height!=frame_size.height) throw std::runtime_error("HEIGHT WAS " + to_string(actual_height) + "  NOT " + to_string(frame_size.height));
+                    if(actual_fps!=frame_rate) throw std::runtime_error("FRAME RATE WAS " + to_string(actual_fps) + "  NOT " + to_string(frame_rate));
+                }
+                                
                 std::vector<std::vector<cv::Point2f>> imgpoints; //stores 2D points for location of chessboard corners found in image
                 std::vector<std::vector<cv::Point3f>> objpoints; //stores 3D points for location of chessboard corners in world frame
                 { //Block for gathering 2D->3D correspondence from chessboard images
@@ -188,12 +198,16 @@ namespace camera_utilities {
         public:
             Stereo_Camera(int left_cam_num, int right_cam_num, std::string prop_path){
                 left_camera = cv::VideoCapture(left_cam_num);
+                if(!left_camera.isOpened()) std::runtime_error( "ERROR CONFIGURING LEFT CAMERA" );
                 right_camera = cv::VideoCapture(right_cam_num);
+                if(!right_camera.isOpened()) std::runtime_error( "ERROR CONFIGURING RIGHT CAMERA" );
                 load_camera_properties(prop_path);
             }
             Stereo_Camera(int left_cam_num, int right_cam_num, std::string prop_path, cv::Size frame_size, int frame_rate, double baseline_dist,  cv::Size chessboard_dim){
                 left_camera = cv::VideoCapture(left_cam_num);
+                if(!left_camera.isOpened()) std::runtime_error( "ERROR CONFIGURING LEFT CAMERA" );
                 right_camera = cv::VideoCapture(right_cam_num);
+                if(!right_camera.isOpened()) std::runtime_error( "ERROR CONFIGURING RIGHT CAMERA" );
                 this->frame_size = frame_size;
                 this->frame_rate = frame_rate;
                 this->baseline_dist = baseline_dist;
@@ -339,13 +353,31 @@ namespace camera_utilities {
             double baseline_dist; //horizontal distance between camera centers in meters
             cv::Ptr<cv::StereoBM> stereo_matcher;
             void calibrate_stereo_camera(cv::Size chessboard_dim){
-                left_camera.set(cv::CAP_PROP_FRAME_WIDTH, frame_size.width);
-                left_camera.set(cv::CAP_PROP_FRAME_HEIGHT, frame_size.height);
-                left_camera.set(cv::CAP_PROP_FPS, frame_rate);
+                { //set camera parameters, and check that cameras adjust accordingly
+                    double actual_width, actual_height, actual_fps;
 
-                right_camera.set(cv::CAP_PROP_FRAME_WIDTH, frame_size.width);
-                right_camera.set(cv::CAP_PROP_FRAME_HEIGHT, frame_size.height);
-                right_camera.set(cv::CAP_PROP_FPS, frame_rate);
+                    left_camera.set(cv::CAP_PROP_FRAME_WIDTH, frame_size.width);
+                    left_camera.set(cv::CAP_PROP_FRAME_HEIGHT, frame_size.height);
+                    left_camera.set(cv::CAP_PROP_FPS, frame_rate);
+                    actual_width = left_camera.get(cv::CAP_PROP_FRAME_WIDTH);
+                    actual_height = left_camera.get(cv::CAP_PROP_FRAME_HEIGHT);
+                    actual_fps = left_camera.get(cv::CAP_PROP_FPS);
+
+                    if(actual_width!=frame_size.width) throw std::runtime_error("LEFT WIDTH WAS " + to_string(actual_width) + " NOT " + to_string(frame_size.width));
+                    if(actual_height!=frame_size.height) throw std::runtime_error("LEFT HEIGHT WAS " + to_string(actual_height) + " NOT " + to_string(frame_size.height));
+                    if(actual_fps!=frame_rate) throw std::runtime_error("LEFT FRAME RATE WAS " + to_string(actual_fps) + " NOT " + to_string(frame_rate));
+
+                    right_camera.set(cv::CAP_PROP_FRAME_WIDTH, frame_size.width);
+                    right_camera.set(cv::CAP_PROP_FRAME_HEIGHT, frame_size.height);
+                    right_camera.set(cv::CAP_PROP_FPS, frame_rate);
+                    actual_width = left_camera.get(cv::CAP_PROP_FRAME_WIDTH);
+                    actual_height = left_camera.get(cv::CAP_PROP_FRAME_HEIGHT);
+                    actual_fps = left_camera.get(cv::CAP_PROP_FPS);
+
+                    if(actual_width!=frame_size.width) throw std::runtime_error("RIGHT WIDTH WAS " + to_string(actual_width) + " NOT " + to_string(frame_size.width));
+                    if(actual_height!=frame_size.height) throw std::runtime_error("RIGHT HEIGHT WAS " + to_string(actual_height) + " NOT " + to_string(frame_size.height));
+                    if(actual_fps!=frame_rate) throw std::runtime_error("RIGHT FRAME RATE WAS " + to_string(actual_fps) + " NOT " + to_string(frame_rate));
+                }
 
                 std::vector<std::vector<cv::Point2f>> left_imgpoints, right_imgpoints; //stores 2D points for location of chessboard corners found in image
                 std::vector<std::vector<cv::Point3f>> left_objpoints, right_objpoints; //stores 3D points for location of chessboard corners in world frame
@@ -367,7 +399,7 @@ namespace camera_utilities {
                             continue;
                         }
                         left_camera.retrieve(left_frame_color, 0);
-                        right_camera.retrieve(right_frame_color);
+                        right_camera.retrieve(right_frame_color, 0);
                         cv::imshow("Left Camera Feed", left_frame_color);
                         cv::imshow("Right Camera Feed", right_frame_color);
                         int key = cv::waitKey(1);
@@ -375,33 +407,34 @@ namespace camera_utilities {
                             break;
                         if(key%256 == 32){ //SPACE was presed, process the frames
                             std::vector<cv::Point2f> left_frame_corners, right_frame_corners; //2D location of chessboard corners in each frame
-                            
-                            //convert both frames to grayscale
+
+                            //convert both frames to grayscale                            std::cout << "388" << std::endl;
                             cv::cvtColor(left_frame_color, left_frame_gray, cv::COLOR_BGR2GRAY);
                             cv::cvtColor(right_frame_color, right_frame_gray, cv::COLOR_BGR2GRAY);
-                            
+
                             //search for chessboards in both frames
                             bool found_left_chessboard = cv::findChessboardCorners(left_frame_gray, chessboard_dim, left_frame_corners, 0);
                             bool found_right_chessboard = cv::findChessboardCorners(right_frame_gray, chessboard_dim, right_frame_corners, 0);
-                            
+
                             //if one or more frame did not contaiin a chessbaord
                             if(!found_left_chessboard || !found_right_chessboard)
                                 continue; //jump to the next loop
                             cv::TermCriteria termcrit(cv::TermCriteria::COUNT | cv::TermCriteria::EPS,20,0.03);
-                            
+
                             //refine corner locations for both frames
                             cv::cornerSubPix(left_frame_gray, left_frame_corners, {5,5}, {-1,-1}, termcrit); //refine the location of the chessboard corners
                             cv::cornerSubPix(right_frame_gray, right_frame_corners, {5,5}, {-1,-1}, termcrit); //refine the location of the chessboard corners
-                            
+
                             left_imgpoints.push_back(left_frame_corners); //save 2D points
                             left_objpoints.push_back(real_corners); //save 3D mapping of 2D points
 
-                            right_imgpoints.push_back(right_frame_color); //save 2D points
+                            right_imgpoints.push_back(right_frame_corners); //save 2D points
                             right_objpoints.push_back(real_corners); //save 3D mapping of 2D points
 
                             //display found corners
                             cv::drawChessboardCorners(left_frame_color, chessboard_dim, left_frame_corners, true);
                             cv::drawChessboardCorners(right_frame_color, chessboard_dim, right_frame_corners, true);
+
                             cv::imshow("Left Camera Feed", left_frame_color);
                             cv::imshow("Right Camera Feed", right_frame_color);
                             cv::waitKey(500);
@@ -418,9 +451,11 @@ namespace camera_utilities {
                 cv::calibrateCamera(left_objpoints, left_imgpoints, chessboard_dim, left_camera_matrix, left_dist_coeffs, left_rvecs, left_tvecs, 0);
                 cv::calibrateCamera(right_objpoints, right_imgpoints, chessboard_dim, right_camera_matrix, right_dist_coeffs, right_rvecs, right_tvecs, 0);
 
-                //Create remapping matrices C0M0 C0M1 C1M0 C1M1 used to rectify the two images (make them row aligned)
-                cv::Mat R0, R1, P0, P1, Q;
-                //CALIB_ZERO_DISPARITY = use already determined camera matrices
+                cv::Mat R0, R1, P0, P1, Q, E, F;
+                //Calculate the relative rotation (R) and translation (T) between the two frames. CALIB_FIX_INTRINSIC= use already determined camera matrices
+                cv::stereoCalibrate(left_objpoints, left_imgpoints, right_imgpoints, left_camera_matrix, left_dist_coeffs, right_camera_matrix, right_dist_coeffs, frame_size, R, T, E, F, cv::CALIB_FIX_INTRINSIC);
+                //Use R and T to create remapping matrices C0M0 C0M1 C1M0 C1M1 which  rectify the two images (make them row aligned.) 
+                //CALIB_ZERO_DISPARITY = align both frames so their principle points have the same pixel coordinates
                 cv::stereoRectify(left_camera_matrix, left_dist_coeffs, right_camera_matrix, right_dist_coeffs, frame_size, R, T, R0, R1, P0, P1, Q, cv::CALIB_ZERO_DISPARITY, 0);
                 cv::initUndistortRectifyMap(left_camera_matrix, left_dist_coeffs, R0, P0, frame_size, CV_32FC1, C0M0, C0M1);
                 initUndistortRectifyMap(right_camera_matrix, right_dist_coeffs, R1, P1, frame_size, CV_32FC1, C1M0, C1M1);
@@ -444,12 +479,12 @@ namespace camera_utilities {
                 right_camera.set(cv::CAP_PROP_FRAME_WIDTH, frame_size.width);
                 right_camera.set(cv::CAP_PROP_FRAME_HEIGHT, frame_size.height);
                 right_camera.set(cv::CAP_PROP_FPS, frame_rate);
-                //Create remapping matrices C0M0 C0M1 C1M0 C1M1 used to rectify the two images (make them row aligned)
-                cv::Mat R0, R1, P0, P1, Q;
-                //CALIB_ZERO_DISPARITY = use already determined camera matrices
+                cv::Mat R0, R1, P0, P1, Q;;
+                //Use R and T to create remapping matrices C0M0 C0M1 C1M0 C1M1 which  rectify the two images (make them row aligned.) 
+                //CALIB_ZERO_DISPARITY = align both frames so their principle points have the same pixel coordinates
                 cv::stereoRectify(left_camera_matrix, left_dist_coeffs, right_camera_matrix, right_dist_coeffs, frame_size, R, T, R0, R1, P0, P1, Q, cv::CALIB_ZERO_DISPARITY, 0);
                 cv::initUndistortRectifyMap(left_camera_matrix, left_dist_coeffs, R0, P0, frame_size, CV_32FC1, C0M0, C0M1);
-                initUndistortRectifyMap(right_camera_matrix, right_dist_coeffs, R1, P1, frame_size, CV_32FC1, C1M0, C1M1);
+                cv::initUndistortRectifyMap(right_camera_matrix, right_dist_coeffs, R1, P1, frame_size, CV_32FC1, C1M0, C1M1);
             }
             void save_stereo_camera_properties(std::string prop_path){
                 cv::FileStorage fs(prop_path, cv::FileStorage::WRITE);
