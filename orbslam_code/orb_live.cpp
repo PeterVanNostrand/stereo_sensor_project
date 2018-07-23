@@ -1,6 +1,9 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
+#include<chrono>
+#include <algorithm>
+#include <vector> 
 #include <sys/stat.h>
 #include<opencv2/core/core.hpp>
 #include "System.h"
@@ -20,6 +23,7 @@ unsigned long int num_frames_to_capture = 500;
 
 void start_mono_slam(camera_utilities::Monocular_Camera mono_camera);
 void start_stereo_slam(camera_utilities::Stereo_Camera stereo_camera);
+void display_statistics(std::vector<double> &frame_times);
 
 int main(){
     char option;
@@ -124,15 +128,22 @@ void start_mono_slam(camera_utilities::Monocular_Camera mono_camera){
     stringstream ss;
     int pad_to_width = to_string(num_frames_to_capture).length();
      ss<< setw(pad_to_width) << setfill('0');
+    std::chrono::steady_clock::time_point t1;
+    std::chrono::steady_clock::time_point t2;
+    std::vector<double> frame_times;
     for(unsigned long int time_stamp=0; time_stamp<num_frames_to_capture; time_stamp++){
+        t1 = std::chrono::steady_clock::now();
         SLAM.TrackMonocular(frame, time_stamp);
         mono_camera.get_frame(frame);
         ss << setw(pad_to_width) << setfill('0') << time_stamp;
         cv::imwrite(frame_dir+ ss.str() +".png", frame);
         ss.str("");
+        t2 = std::chrono::steady_clock::now();
+        frame_times.push_back(std::chrono::duration_cast<std::chrono::duration<double>>(t2 - t1).count());
     }
     SLAM.Shutdown();
-    SLAM.SaveKeyFrameTrajectoryTUM(output_dir+session_dir+"stereo_keyframe_trajectory.txt");
+    SLAM.SaveKeyFrameTrajectoryTUM(output_dir+session_dir+"mono_keyframe_trajectory.txt");
+    display_statistics(frame_times);
 }
 
 void start_stereo_slam(camera_utilities::Stereo_Camera stereo_camera){
@@ -141,14 +152,35 @@ void start_stereo_slam(camera_utilities::Stereo_Camera stereo_camera){
     stereo_camera.get_stereo_frame_rectified(frames);
     stringstream ss;
     int pad_to_width = to_string(num_frames_to_capture).length();
+    std::chrono::steady_clock::time_point t1;
+    std::chrono::steady_clock::time_point t2;
+    std::vector<double> frame_times;
     for(unsigned long int time_stamp=0; time_stamp<num_frames_to_capture; time_stamp++){
+        t1 = std::chrono::steady_clock::now();
         SLAM.TrackStereo(frames[0], frames[1], time_stamp);
         stereo_camera.get_stereo_frame_rectified(frames);
         ss << setw(pad_to_width) << setfill('0') << time_stamp;
         cv::imwrite(frame_dir + ss.str() +"_left.png", frames[0]);
         cv::imwrite(frame_dir+ ss.str() +"_right.png", frames[1]);
         ss.str("");
+        t2 = std::chrono::steady_clock::now();
+        frame_times.push_back(std::chrono::duration_cast<std::chrono::duration<double>>(t2 - t1).count());
     }
     SLAM.Shutdown();
     SLAM.SaveKeyFrameTrajectoryTUM(output_dir+session_dir+"stereo_keyframe_trajectory.txt");
+    display_statistics(frame_times);
+}
+
+void display_statistics(std::vector<double> &frame_times){
+    std::sort(frame_times.begin(), frame_times.end());
+    double total_time = 0;
+    for(int i=0; i<frame_times.size(); i++)
+        total_time += frame_times[i];
+    double mean_frame_time = total_time / frame_times.size();
+    double median_frame_time = frame_times[frame_times.size()/2];
+
+    std::cout << "------------------------------------------" << std::endl;
+    std::cout << "Total Time:\t\t" << total_time << std::endl;
+    std::cout << "Mean Frame Time:\t" << mean_frame_time << std::endl;
+    std::cout << "Median Frame Time:\t" << median_frame_time << std::endl;
 }
