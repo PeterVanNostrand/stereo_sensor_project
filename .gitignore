@@ -1,2 +1,5 @@
 orbslam_code/build/
 orbslam_code/data/
+.vscode/
+stereo_sensor_project.code-workspace
+.vscode/

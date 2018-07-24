@@ -110,7 +110,24 @@ int main(){
         start_stereo_slam(stereo_camera);
     }
     else if (option == '4'){
-        camera_utilities::Stereo_Camera stereo_camera(0, 2,  output_dir+session_dir+"stereo_camera_properties.txt");
+        string prop_path;
+        //try to find the properties file from a previous session
+        stringstream ss;
+        ss << setw(4) << setfill('0') << (session_num-1);
+        std::string prev_session_dir = "session_" + ss.str() + "/";
+        prop_path = output_dir+prev_session_dir+"stereo_camera_properties.txt";
+        std::ifstream old_properties(prop_path, std::ios::binary);
+        if(!old_properties.is_open()){ //file exists and is opened        
+            std::cout << "NO PREVIOUS SESSION. ENTER PATH TO PROPERTIES FILE: ";
+            std::cin >> prop_path;
+        }
+        old_properties.open(prop_path);
+        if(!old_properties.is_open()) throw std::runtime_error("FAILED TO OPEN PROPERTIES FILE");
+        std::ofstream new_properties(output_dir+session_dir+"stereo_camera_properties.txt", std::ios::binary);
+        new_properties << old_properties.rdbuf();
+
+        //create a camera object and start the SLAM tracking
+        camera_utilities::Stereo_Camera stereo_camera(0, 2,  prop_path);
         stereo_camera.create_orbslam_settings(output_dir+session_dir+"stereo_camera.yaml");
         start_stereo_slam(stereo_camera);
     }
@@ -127,7 +144,6 @@ void start_mono_slam(camera_utilities::Monocular_Camera mono_camera){
     mono_camera.get_frame(frame);
     stringstream ss;
     int pad_to_width = to_string(num_frames_to_capture).length();
-     ss<< setw(pad_to_width) << setfill('0');
     std::chrono::steady_clock::time_point t1;
     std::chrono::steady_clock::time_point t2;
     std::vector<double> frame_times;
@@ -174,7 +190,7 @@ void start_stereo_slam(camera_utilities::Stereo_Camera stereo_camera){
 void display_statistics(std::vector<double> &frame_times){
     std::sort(frame_times.begin(), frame_times.end());
     double total_time = 0;
-    for(int i=0; i<frame_times.size(); i++)
+    for(unsigned int i=0; i<frame_times.size(); i++)
         total_time += frame_times[i];
     double mean_frame_time = total_time / frame_times.size();
     double median_frame_time = frame_times[frame_times.size()/2];
