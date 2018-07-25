@@ -158,7 +158,7 @@ void start_mono_slam(camera_utilities::Monocular_Camera mono_camera){
         frame_times.push_back(std::chrono::duration_cast<std::chrono::duration<double>>(t2 - t1).count());
     }
     SLAM.Shutdown();
-    SLAM.SaveKeyFrameTrajectoryTUM(output_dir+session_dir+"mono_keyframe_trajectory.txt");
+    SLAM.SaveTrajectoryTUM(output_dir+session_dir+"mono_trajectory.txt");
     display_statistics(frame_times);
 }
 
@@ -183,7 +183,7 @@ void start_stereo_slam(camera_utilities::Stereo_Camera stereo_camera){
         frame_times.push_back(std::chrono::duration_cast<std::chrono::duration<double>>(t2 - t1).count());
     }
     SLAM.Shutdown();
-    SLAM.SaveKeyFrameTrajectoryTUM(output_dir+session_dir+"stereo_keyframe_trajectory.txt");
+    SLAM.SaveTrajectoryTUM(output_dir+session_dir+"stereo_trajectory.txt");
     display_statistics(frame_times);
 }
 

@@ -23,6 +23,8 @@ if (!context.create(cv::ocl::Device::TYPE_GPU))
     cout << "Failed creating the context..." << endl;
     //return;
 }
+else
+    cout << "Context Created!" << std::endl;
 
 cout << context.ndevices() << " GPU devices are detected." << endl; //This bit provides an overview of the OpenCL devices you have in your computer
 for (int i = 0; i < context.ndevices(); i++)
