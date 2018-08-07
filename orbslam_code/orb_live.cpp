@@ -11,7 +11,7 @@
 
 using namespace std;
 
-std::string orb_slam_dir = "/home/peter/ORB_SLAM2/";
+std::string orb_slam_dir = "/home/asimov/ORB_SLAM2/";
 std::string orb_voc_path = orb_slam_dir + "Vocabulary/ORBvoc.txt";
 std::string output_dir = "../data/";
 int session_num = 0;
@@ -24,6 +24,7 @@ unsigned long int num_frames_to_capture = 500;
 void start_mono_slam(camera_utilities::Monocular_Camera mono_camera);
 void start_stereo_slam(camera_utilities::Stereo_Camera stereo_camera);
 void display_statistics(std::vector<double> &frame_times);
+void start_stereo_disparity(camera_utilities::Stereo_Camera stereo_camera);
 
 int main(){
     char option;
@@ -32,6 +33,8 @@ int main(){
     std::cout << "\t2) Monocular SLAM saved calibration" << std::endl;
     std::cout << "\t3) Stereo SLAM new calibration" << std::endl;
     std::cout << "\t4) Stereo SLAM saved calibration" << std::endl;
+    std::cout << "\t5) Stereo Depth new calibration" << std::endl;
+    std::cout << "\t6) Stereo Depth saved calibration" << std::endl;
     std::cout << "OPTION: ";
     std::cin >> option;
     
@@ -104,9 +107,10 @@ int main(){
         std::cout << "ENTER BASELINE DISTANCE IN METERS: ";
         std::cin >>baseline;
         std::cout << "STARTING CALIBRATION..." << std::endl;
-        camera_utilities::Stereo_Camera stereo_camera(0, 2, output_dir+session_dir+"stereo_camera_properties.txt", {frame_width,frame_height}, fps, baseline, {chess_width,chess_height});
+        camera_utilities::Stereo_Camera stereo_camera(0, 1, output_dir+session_dir+"stereo_camera_properties.txt", {frame_width,frame_height}, fps, baseline, {chess_width,chess_height});
         std::cout << "CALIBRATION COMPLETE. LAUNCHING ORB SLAM 2..." << std::endl << std::endl;
-        stereo_camera.create_orbslam_settings(output_dir+session_dir+"stereo_camera.yaml");
+	const double stereo_orb_params[5] = {1000, 1.2, 8, 12, 7};
+        stereo_camera.create_orbslam_settings(output_dir+session_dir+"stereo_camera.yaml", stereo_orb_params);
         start_stereo_slam(stereo_camera);
     }
     else if (option == '4'){
@@ -127,13 +131,36 @@ int main(){
         new_properties << old_properties.rdbuf();
 
         //create a camera object and start the SLAM tracking
-        camera_utilities::Stereo_Camera stereo_camera(0, 2,  prop_path);
-        stereo_camera.create_orbslam_settings(output_dir+session_dir+"stereo_camera.yaml");
+        camera_utilities::Stereo_Camera stereo_camera(0, 1,  prop_path);
+	const double stereo_orb_params[5] = {1000, 1.2, 8, 12, 7};
+        stereo_camera.create_orbslam_settings(output_dir+session_dir+"stereo_camera.yaml", stereo_orb_params);
         start_stereo_slam(stereo_camera);
+    }
+    else if (option == '5'){
+    }
+    else if (option == '6'){
+	string prop_path;
+        //try to find the properties file from a previous session
+        stringstream ss;
+        ss << setw(4) << setfill('0') << (session_num-1);
+        std::string prev_session_dir = "session_" + ss.str() + "/";
+        prop_path = output_dir+prev_session_dir+"stereo_camera_properties.txt";
+        std::ifstream old_properties(prop_path, std::ios::binary);
+        if(!old_properties.is_open()){ //file exists and is opened
+            std::cout << "NO PREVIOUS SESSION. ENTER PATH TO PROPERTIES FILE: ";
+            std::cin >> prop_path;
+        }
+        old_properties.open(prop_path);
+        if(!old_properties.is_open()) throw std::runtime_error("FAILED TO OPEN PROPERTIES FILE");
+        std::ofstream new_properties(output_dir+session_dir+"stereo_camera_properties.txt", std::ios::binary);
+        new_properties << old_properties.rdbuf();
+
+	camera_utilities::Stereo_Camera stereo_camera(0, 1,  prop_path);
+	start_stereo_disparity(stereo_camera);
     }
     else{
         std::cout << "INVALID OPTION. EXITING..." << std::endl;
-        return -1;
+    	return -1;
     }
     return 0;
 }
@@ -187,6 +214,21 @@ void start_stereo_slam(camera_utilities::Stereo_Camera stereo_camera){
     display_statistics(frame_times);
 }
 
+void start_stereo_disparity(camera_utilities::Stereo_Camera stereo_camera){
+	stereo_camera.create_disparity_matcher();
+        cv::Mat frame;
+	int key;
+        cv::namedWindow("Disparity");
+        while(true){
+		stereo_camera.get_disparity(frame);
+		cv::imshow("Disparity", frame*1000);
+		key = cv::waitKey(1);
+		if(key%256 == 27) //ESC pressed
+			break;
+        }
+
+}
+
 void display_statistics(std::vector<double> &frame_times){
     std::sort(frame_times.begin(), frame_times.end());
     double total_time = 0;
@@ -199,4 +241,6 @@ void display_statistics(std::vector<double> &frame_times){
     std::cout << "Total Time:\t\t" << total_time << std::endl;
     std::cout << "Mean Frame Time:\t" << mean_frame_time << std::endl;
     std::cout << "Median Frame Time:\t" << median_frame_time << std::endl;
+    std::cout << "Mean Frame Rate:\t" << (1/mean_frame_time) << std::endl;
+    std::cout << "Median Frame Rate:\t" << (1/median_frame_time) << std::endl;
 }
