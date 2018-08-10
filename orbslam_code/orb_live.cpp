@@ -7,7 +7,7 @@
 #include <sys/stat.h>
 #include<opencv2/core/core.hpp>
 #include "System.h"
-#include "camera_utilities.hpp"
+#include "../camera_utilities.hpp"
 
 using namespace std;
 
