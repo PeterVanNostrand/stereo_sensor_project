@@ -1,5 +1,5 @@
 CC = g++
-CFLAGS = -g -O2 -Wall
+CFLAGS = -std=c++11 -g -O2 -Wall
 SRCS = stereo_calibration.cpp
 PROG = made
 

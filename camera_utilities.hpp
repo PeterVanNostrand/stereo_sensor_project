@@ -119,9 +119,9 @@ namespace camera_utilities {
                     double actual_width = camera.get(cv::CAP_PROP_FRAME_WIDTH);
                     double actual_height = camera.get(cv::CAP_PROP_FRAME_HEIGHT);
                     double actual_fps = camera.get(cv::CAP_PROP_FPS);
-                    if(actual_width!=frame_size.width) throw std::runtime_error("WIDTH WAS " + to_string(actual_width) + "  NOT " + to_string(frame_size.width));
-                    if(actual_height!=frame_size.height) throw std::runtime_error("HEIGHT WAS " + to_string(actual_height) + "  NOT " + to_string(frame_size.height));
-                    if(actual_fps!=frame_rate) throw std::runtime_error("FRAME RATE WAS " + to_string(actual_fps) + "  NOT " + to_string(frame_rate));
+                    if(actual_width!=frame_size.width) throw std::runtime_error("WIDTH WAS " + std::to_string(actual_width) + "  NOT " + std::to_string(frame_size.width));
+                    if(actual_height!=frame_size.height) throw std::runtime_error("HEIGHT WAS " + std::to_string(actual_height) + "  NOT " + std::to_string(frame_size.height));
+                    if(actual_fps!=frame_rate) throw std::runtime_error("FRAME RATE WAS " + std::to_string(actual_fps) + "  NOT " + std::to_string(frame_rate));
                 }
                                 
                 std::vector<std::vector<cv::Point2f>> imgpoints; //stores 2D points for location of chessboard corners found in image
@@ -363,9 +363,9 @@ namespace camera_utilities {
                     actual_height = left_camera.get(cv::CAP_PROP_FRAME_HEIGHT);
                     actual_fps = left_camera.get(cv::CAP_PROP_FPS);
 
-                    if(actual_width!=frame_size.width) throw std::runtime_error("LEFT WIDTH WAS " + to_string(actual_width) + " NOT " + to_string(frame_size.width));
-                    if(actual_height!=frame_size.height) throw std::runtime_error("LEFT HEIGHT WAS " + to_string(actual_height) + " NOT " + to_string(frame_size.height));
-                    if(actual_fps!=frame_rate) throw std::runtime_error("LEFT FRAME RATE WAS " + to_string(actual_fps) + " NOT " + to_string(frame_rate));
+                    if(actual_width!=frame_size.width) throw std::runtime_error("LEFT WIDTH WAS " + std::to_string(actual_width) + " NOT " + std::to_string(frame_size.width));
+                    if(actual_height!=frame_size.height) throw std::runtime_error("LEFT HEIGHT WAS " + std::to_string(actual_height) + " NOT " + std::to_string(frame_size.height));
+                    if(actual_fps!=frame_rate) throw std::runtime_error("LEFT FRAME RATE WAS " + std::to_string(actual_fps) + " NOT " + std::to_string(frame_rate));
 
                     right_camera.set(cv::CAP_PROP_FRAME_WIDTH, frame_size.width);
                     right_camera.set(cv::CAP_PROP_FRAME_HEIGHT, frame_size.height);
@@ -374,9 +374,9 @@ namespace camera_utilities {
                     actual_height = left_camera.get(cv::CAP_PROP_FRAME_HEIGHT);
                     actual_fps = left_camera.get(cv::CAP_PROP_FPS);
 
-                    if(actual_width!=frame_size.width) throw std::runtime_error("RIGHT WIDTH WAS " + to_string(actual_width) + " NOT " + to_string(frame_size.width));
-                    if(actual_height!=frame_size.height) throw std::runtime_error("RIGHT HEIGHT WAS " + to_string(actual_height) + " NOT " + to_string(frame_size.height));
-                    if(actual_fps!=frame_rate) throw std::runtime_error("RIGHT FRAME RATE WAS " + to_string(actual_fps) + " NOT " + to_string(frame_rate));
+                    if(actual_width!=frame_size.width) throw std::runtime_error("RIGHT WIDTH WAS " + std::to_string(actual_width) + " NOT " + std::to_string(frame_size.width));
+                    if(actual_height!=frame_size.height) throw std::runtime_error("RIGHT HEIGHT WAS " + std::to_string(actual_height) + " NOT " + std::to_string(frame_size.height));
+                    if(actual_fps!=frame_rate) throw std::runtime_error("RIGHT FRAME RATE WAS " + std::to_string(actual_fps) + " NOT " + std::to_string(frame_rate));
                 }
 
                 std::vector<std::vector<cv::Point2f>> left_imgpoints, right_imgpoints; //stores 2D points for location of chessboard corners found in image
