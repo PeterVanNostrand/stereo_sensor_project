@@ -11,20 +11,19 @@
 
 using namespace std;
 
-std::string orb_slam_dir = "/home/asimov/ORB_SLAM2/";
-std::string orb_voc_path = orb_slam_dir + "Vocabulary/ORBvoc.txt";
+std::string orb_slam_dir = "/home/peter/ORB_SLAM2/";
+std::string orb_voc_path = orb_slam_dir + "Vocabulary/ORBvoc.bin";
 std::string output_dir = "../data/";
 int session_num = 0;
 string session_dir = "session_0000/";
 std::string frame_dir;
-//std::string properties_path;
-//std::string yaml_path;
-unsigned long int num_frames_to_capture = 500;
+unsigned int session_duration_sec = 30;
 
 void start_mono_slam(camera_utilities::Monocular_Camera mono_camera);
 void start_stereo_slam(camera_utilities::Stereo_Camera stereo_camera);
 void display_statistics(std::vector<double> &frame_times);
 void start_stereo_disparity(camera_utilities::Stereo_Camera stereo_camera);
+string load_previous_calibration(string camera_type);
 
 int main(){
     char option;
@@ -51,7 +50,7 @@ int main(){
     frame_dir = output_dir + session_dir + "frames/";
     mkdir(frame_dir.c_str(), 0777);
 
-    if(option == '1'){
+    if(option == '1'){  //Monocular SLAM, new calibration
         int frame_width, frame_height, chess_width, chess_height, fps;
         std::cout << "ENTER FRAME WIDTH: ";
         std::cin >> frame_width;
@@ -63,35 +62,21 @@ int main(){
         std::cin >> chess_width;
         std::cout << "ENTER CHESSBOARD HEIGHT: ";
         std::cin >> chess_height;
+        std::cout << "ENTER SESSION DURATION (SECONDS): ";
+        std::cin >> session_duration_sec;
         std::cout << "STARTING CALIBRATION..." << std::endl;
-        camera_utilities::Monocular_Camera mono_camera(0, output_dir+session_dir+"mono_camera_properties.txt", {frame_width, frame_height}, fps, {chess_width, chess_height});
+        camera_utilities::Monocular_Camera mono_camera(0, output_dir+session_dir+"mono_camera_properties.yaml", {frame_width, frame_height}, fps, {chess_width, chess_height});
         std::cout << "CALIBRATION COMPLETE. LAUNCHING ORB SLAM 2..." << std::endl << std::endl;
         mono_camera.create_orbslam_settings(output_dir+session_dir+"mono_camera.yaml");
         start_mono_slam(mono_camera);
     }
-    else if (option == '2'){
-        string prop_path;
-        //try to find the properties file from a previous session
-        stringstream ss;
-        ss << setw(4) << setfill('0') << (session_num-1);
-        std::string prev_session_dir = "session_" + ss.str() + "/";
-        prop_path = output_dir+prev_session_dir+"mono_camera_properties.txt";
-        std::ifstream old_properties(prop_path, std::ios::binary);
-        if(!old_properties.is_open()){ //file exists and is opened        
-            std::cout << "NO PREVIOUS SESSION. ENTER PATH TO PROPERTIES FILE: ";
-            std::cin >> prop_path;
-        }
-        old_properties.open(prop_path);
-        if(!old_properties.is_open()) throw std::runtime_error("FAILED TO OPEN PROPERTIES FILE");
-        std::ofstream new_properties(output_dir+session_dir+"mono_camera_properties.txt", std::ios::binary);
-        new_properties << old_properties.rdbuf();
-
+    else if (option == '2') {//Monocular SLAM, saved calibration
+        string prop_path = load_previous_calibration("mono");
         //create a camera object and start the SLAM tracking
         camera_utilities::Monocular_Camera mono_camera(0, prop_path);
-        mono_camera.create_orbslam_settings(output_dir+session_dir+"mono_camera.yaml");
         start_mono_slam(mono_camera);
     }
-    else if (option == '3'){
+    else if (option == '3'){ //Stereo SLAM, new calibration
         int frame_width, frame_height, chess_width, chess_height, fps;
         double baseline;
         std::cout << "ENTER FRAME WIDTH: ";
@@ -106,37 +91,21 @@ int main(){
         std::cin >> chess_height;
         std::cout << "ENTER BASELINE DISTANCE IN METERS: ";
         std::cin >>baseline;
+        std::cout << "ENTER SESSION DURATION (SECONDS): ";
+        std::cin >> session_duration_sec;
         std::cout << "STARTING CALIBRATION..." << std::endl;
-        camera_utilities::Stereo_Camera stereo_camera(0, 1, output_dir+session_dir+"stereo_camera_properties.txt", {frame_width,frame_height}, fps, baseline, {chess_width,chess_height});
+        camera_utilities::Stereo_Camera stereo_camera(0, 2, output_dir+session_dir+"stereo_camera_properties.yaml", {frame_width,frame_height}, fps, baseline, {chess_width,chess_height});
         std::cout << "CALIBRATION COMPLETE. LAUNCHING ORB SLAM 2..." << std::endl << std::endl;
 	    const double stereo_orb_params[5] = {1000, 1.2, 8, 12, 7};
         stereo_camera.create_orbslam_settings(output_dir+session_dir+"stereo_camera.yaml", stereo_orb_params);
         start_stereo_slam(stereo_camera);
     }
-    else if (option == '4'){
-        string prop_path;
-        //try to find the properties file from a previous session
-        stringstream ss;
-        ss << setw(4) << setfill('0') << (session_num-1);
-        std::string prev_session_dir = "session_" + ss.str() + "/";
-        prop_path = output_dir+prev_session_dir+"stereo_camera_properties.txt";
-        std::ifstream old_properties(prop_path, std::ios::binary);
-        if(!old_properties.is_open()){ //file exists and is opened        
-            std::cout << "NO PREVIOUS SESSION. ENTER PATH TO PROPERTIES FILE: ";
-            std::cin >> prop_path;
-        }
-        old_properties.open(prop_path);
-        if(!old_properties.is_open()) throw std::runtime_error("FAILED TO OPEN PROPERTIES FILE");
-        std::ofstream new_properties(output_dir+session_dir+"stereo_camera_properties.txt", std::ios::binary);
-        new_properties << old_properties.rdbuf();
-
-        //create a camera object and start the SLAM tracking
-        camera_utilities::Stereo_Camera stereo_camera(0, 1,  prop_path);
-	    const double stereo_orb_params[5] = {1000, 1.2, 8, 12, 7};
-        stereo_camera.create_orbslam_settings(output_dir+session_dir+"stereo_camera.yaml", stereo_orb_params);
+    else if (option == '4'){ //Stereo SLAM, saved calibration
+        string prop_path = load_previous_calibration("stereo");
+        camera_utilities::Stereo_Camera stereo_camera(0, 2,  prop_path);
         start_stereo_slam(stereo_camera);
     }
-    else if (option == '5'){
+    else if (option == '5'){ //Stereo Depth, new calibration
         int frame_width, frame_height, chess_width, chess_height, fps;
         double baseline;
         std::cout << "ENTER FRAME WIDTH: ";
@@ -152,28 +121,13 @@ int main(){
         std::cout << "ENTER BASELINE DISTANCE IN METERS: ";
         std::cin >>baseline;
         std::cout << "STARTING CALIBRATION..." << std::endl;
-        camera_utilities::Stereo_Camera stereo_camera(0, 1, output_dir+session_dir+"stereo_camera_properties.txt", {frame_width,frame_height}, fps, baseline, {chess_width,chess_height});
+        camera_utilities::Stereo_Camera stereo_camera(0, 2, output_dir+session_dir+"stereo_camera_properties.yaml", {frame_width,frame_height}, fps, baseline, {chess_width,chess_height});
         std::cout << "CALIBRATION COMPLETE! STARTING DISPARITY MATCHER..." << std::endl << std::endl;
         start_stereo_disparity(stereo_camera);
     }
-    else if (option == '6'){
-	    string prop_path;
-        //try to find the properties file from a previous session
-        stringstream ss;
-        ss << setw(4) << setfill('0') << (session_num-1);
-        std::string prev_session_dir = "session_" + ss.str() + "/";
-        prop_path = output_dir+prev_session_dir+"stereo_camera_properties.txt";
-        std::ifstream old_properties(prop_path, std::ios::binary);
-        if(!old_properties.is_open()){ //file exists and is opened
-            std::cout << "NO PREVIOUS SESSION. ENTER PATH TO PROPERTIES FILE: ";
-            std::cin >> prop_path;
-        }
-        old_properties.open(prop_path);
-        if(!old_properties.is_open()) throw std::runtime_error("FAILED TO OPEN PROPERTIES FILE");
-        std::ofstream new_properties(output_dir+session_dir+"stereo_camera_properties.txt", std::ios::binary);
-        new_properties << old_properties.rdbuf();
-
-        camera_utilities::Stereo_Camera stereo_camera(0, 1,  prop_path);
+    else if (option == '6'){ //Stereo Depth, saved calibration
+	    string prop_path = load_previous_calibration("stereo");
+        camera_utilities::Stereo_Camera stereo_camera(0, 2,  prop_path);
         start_stereo_disparity(stereo_camera);
     }
     else{
@@ -184,49 +138,79 @@ int main(){
 }
 
 void start_mono_slam(camera_utilities::Monocular_Camera mono_camera){
+    //Creating ORB object
     ORB_SLAM2::System SLAM(orb_voc_path, output_dir+session_dir+"mono_camera.yaml",ORB_SLAM2::System::MONOCULAR,true);
+    
+    //Prepare to load frame
     cv::Mat frame;
-    mono_camera.get_frame(frame);
+    int frame_number = 0;
+    
+    //Determine naming schema for saved frames
     stringstream ss;
-    int pad_to_width = to_string(num_frames_to_capture).length();
-    std::chrono::steady_clock::time_point t1;
-    std::chrono::steady_clock::time_point t2;
+    int pad_to_width = to_string(session_duration_sec*100).length();
+
+    //Prepare variables for statistics tracking
+    std::chrono::steady_clock::time_point frame_start;
+    std::chrono::steady_clock::time_point frame_end;
     std::vector<double> frame_times;
-    for(unsigned long int time_stamp=0; time_stamp<num_frames_to_capture; time_stamp++){
-        t1 = std::chrono::steady_clock::now();
-        SLAM.TrackMonocular(frame, time_stamp);
+
+    std::chrono::steady_clock::time_point session_start = std::chrono::steady_clock::now();
+    while(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - session_start).count() < session_duration_sec){
+        //Process frame
+        frame_start = std::chrono::steady_clock::now();
         mono_camera.get_frame(frame);
-        ss << setw(pad_to_width) << setfill('0') << time_stamp;
+        SLAM.TrackMonocular(frame, frame_number);
+
+        //Save frame
+        ss << setw(pad_to_width) << setfill('0') << frame_number;
         cv::imwrite(frame_dir+ ss.str() +".png", frame);
+        frame_number++;
         ss.str("");
-        t2 = std::chrono::steady_clock::now();
-        frame_times.push_back(std::chrono::duration_cast<std::chrono::duration<double>>(t2 - t1).count());
+
+        frame_end = std::chrono::steady_clock::now();
+        frame_times.push_back(std::chrono::duration_cast<std::chrono::duration<double>>(frame_end - frame_start).count());
     }
     SLAM.Shutdown();
-    SLAM.SaveTrajectoryTUM(output_dir+session_dir+"mono_trajectory.txt");
+    SLAM.SaveKeyFrameTrajectoryTUM(output_dir+session_dir+"mono_keyframe_trajectory.txt");
     display_statistics(frame_times);
 }
 
 void start_stereo_slam(camera_utilities::Stereo_Camera stereo_camera){
+    //Creating ORB object
     ORB_SLAM2::System SLAM(orb_voc_path, output_dir+session_dir+"stereo_camera.yaml",ORB_SLAM2::System::STEREO,true);
+    
+    //Prepare to laod frames
     cv::Mat frames[2];
     stereo_camera.get_stereo_frame_rectified(frames);
+
+    //Determine naming schema for saved frames
     stringstream ss;
-    int pad_to_width = to_string(num_frames_to_capture).length();
-    std::chrono::steady_clock::time_point t1;
-    std::chrono::steady_clock::time_point t2;
+    int pad_to_width = to_string(session_duration_sec*100).length();
+    int frame_number = 0;
+
+    //Prepare variables for statistics tracking
+    std::chrono::steady_clock::time_point frame_start;
+    std::chrono::steady_clock::time_point frame_end;
     std::vector<double> frame_times;
-    for(unsigned long int time_stamp=0; time_stamp<num_frames_to_capture; time_stamp++){
-        t1 = std::chrono::steady_clock::now();
-        SLAM.TrackStereo(frames[0], frames[1], time_stamp);
+
+    std::chrono::steady_clock::time_point session_start = std::chrono::steady_clock::now();
+    while(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - session_start).count() < session_duration_sec){
+        //Process frame
+        frame_start = std::chrono::steady_clock::now();
         stereo_camera.get_stereo_frame_rectified(frames);
-        ss << setw(pad_to_width) << setfill('0') << time_stamp;
-        cv::imwrite(frame_dir + ss.str() +"_left.png", frames[0]);
-        cv::imwrite(frame_dir+ ss.str() +"_right.png", frames[1]);
+        SLAM.TrackStereo(frames[0], frames[1], frame_number);
+
+        //Save frame
+        ss << setw(pad_to_width) << setfill('0') << frame_number;
+        cv::imwrite(frame_dir + ss.str() + ".png", frames[0]);
+        frame_number++;
         ss.str("");
-        t2 = std::chrono::steady_clock::now();
-        frame_times.push_back(std::chrono::duration_cast<std::chrono::duration<double>>(t2 - t1).count());
+
+        frame_end = std::chrono::steady_clock::now();
+        frame_times.push_back(std::chrono::duration_cast<std::chrono::duration<double>>(frame_end - frame_start).count());
     }
+
+    //Close ORB object and save trajectory
     SLAM.Shutdown();
     SLAM.SaveTrajectoryTUM(output_dir+session_dir+"stereo_trajectory.txt");
     display_statistics(frame_times);
@@ -260,4 +244,50 @@ void display_statistics(std::vector<double> &frame_times){
     std::cout << "Median Frame Time:\t" << median_frame_time << std::endl;
     std::cout << "Mean Frame Rate:\t" << (1/mean_frame_time) << std::endl;
     std::cout << "Median Frame Rate:\t" << (1/median_frame_time) << std::endl;
+}
+
+string load_previous_calibration(string camera_type){
+    //Find the previous session directory
+    stringstream ss;
+    string prop_path;
+    ss << setw(4) << setfill('0') << (session_num-1);
+    std::string prev_session_dir = "session_" + ss.str() + "/";
+        
+    //Check the previous session directory for a camera properties file
+    prop_path = output_dir+prev_session_dir+ camera_type + "_camera_properties.yaml";
+    std::ifstream old_camera_properties(prop_path, std::ios::binary);
+    if(!old_camera_properties.is_open()){ //if one couldn't be found or couldn't be opened
+        std::cout << "NO PREVIOUS SESSION. ENTER PATH TO CAMERA PROPERTIES FILE: ";
+        std::cin >> prop_path; //prompt the user for the correct path
+        old_camera_properties.open(prop_path);
+        if(!old_camera_properties.is_open()) throw std::runtime_error("FAILED TO OPEN CAMERA PROPERTIES FILE"); //check the new path opened successfully
+    }
+
+    //Copy the old camera properties to the current session directory
+    std::ofstream new_camera_properties(output_dir+session_dir+ camera_type + "_camera_properties.yaml", std::ios::binary);
+    new_camera_properties << old_camera_properties.rdbuf();
+    old_camera_properties.close();
+    new_camera_properties.close();
+
+    //Check the previous session directory for an ORB settings file
+    string settings_path = output_dir+prev_session_dir+ camera_type + "_camera.yaml";
+    std::ifstream old_ORB_settings(settings_path, std::ios::binary);
+    if(!old_ORB_settings.is_open()){ //if one couldn't be found or couldn't be opened
+        std::cout << "NO PREVIOUS SESSION. ENTER PATH TO ORB SETTINGS FILE: ";
+        std::cin >> settings_path; //prompt the user for the correct path
+        old_ORB_settings.open(settings_path);
+        if(!old_ORB_settings.is_open()) throw std::runtime_error("FAILED TO OPEN PROPERTIES FILE"); //check the new path opened successfully
+    }
+
+    //Copy the old ORB settings to the current session directory
+    std::ofstream new_ORB_settings(output_dir+session_dir + camera_type + "_camera.yaml", std::ios::binary);
+    new_ORB_settings << old_ORB_settings.rdbuf();
+    old_ORB_settings.close();
+    new_ORB_settings.close();
+
+    //Determine how long to run
+    std::cout << "ENTER SESSION DURATION (SECONDS): ";
+    std::cin >> session_duration_sec;
+
+    return prop_path;
 }

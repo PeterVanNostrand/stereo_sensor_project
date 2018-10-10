@@ -27,6 +27,7 @@ int main(){
     test_resolution(640, 480); //480p
     test_resolution(480, 360); //360p
     test_resolution(320, 240); //240p
+    test_resolution(256, 144);
     std::cout << "----------------------------------------" << std::endl;
     return 0;
 }
