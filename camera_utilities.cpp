@@ -1,0 +1,628 @@
+#include <iostream>
+#include <stdexcept>
+#include <fstream>
+#include <string>
+#include <thread>
+#include <mutex>
+#include <chrono>
+#include <opencv2/core.hpp>
+#include <opencv2/highgui.hpp>
+#include <opencv2/calib3d/calib3d.hpp>
+#include <opencv2/imgproc.hpp>
+#include "camera_utilities.hpp"
+
+namespace camera_utilities {
+    // helper function swap defined for cv::Mat pointers
+    void swap(cv::Mat  **a, cv::Mat **b){
+        cv::Mat *temp = *a;
+        *a = *b;
+        *b = temp;
+    }
+
+    /*==========================================================*/    
+    /*Start of monocular class*/  
+    /*==========================================================*/   
+
+    //Constructor for camera with known intrinsic properties (matrix, dist coeffs, etc)
+    Monocular_Camera::Monocular_Camera(int cam_num, std::string prop_path){
+        camera = cv::VideoCapture(cam_num);
+        if(!camera.isOpened()) std::runtime_error( "ERROR CONFIGURING CAMERA" );
+        load_camera_properties(prop_path);
+    }
+    //Constructor for camera with unknown intrinsic properties (matrix, dist_coeffs, etc)
+    //These values are found using chessboard image calibration
+    Monocular_Camera::Monocular_Camera(int cam_num, std::string prop_path, cv::Size frame_size, int frame_rate, cv::Size chessboard_dim){
+        camera = cv::VideoCapture(cam_num);
+        if(!camera.isOpened()) std::runtime_error( "ERROR CONFIGURING CAMERA" );
+        this->frame_size = frame_size;
+        this->frame_rate = frame_rate;
+        calibrate_camera(chessboard_dim);
+        save_camera_properties(prop_path);
+    }
+    void Monocular_Camera::get_frame_undistorted(cv::Mat **out_frame){
+        while(!has_updated) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        thread_status.lock();
+        swap(out_frame, &latest_frame_rectified);
+        has_updated = false;
+        thread_status.unlock();
+    }
+    void Monocular_Camera::get_frame(cv::Mat **out_frame){
+        while(!has_updated) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        thread_status.lock();
+        swap(out_frame, &latest_frame);
+        has_updated = false;
+        thread_status.unlock();
+    }
+    void Monocular_Camera::create_orbslam_settings(std::string yaml_path, const double orb_params[5], const double viewer_params[10]){
+        std::fstream yaml(yaml_path, std::fstream::out);
+        if(!yaml.is_open()) throw std::runtime_error("UNABLE TO CREATE SETTINGS FILE");
+        //start of file contents
+        yaml << "%YAML:1.0" << std::endl;
+        yaml << std::endl;
+        yaml << "#--------------------------------------------------------------------------------------------" << std::endl;
+        yaml << "# Camera Parameters for Monocular Camera" << std::endl;
+        yaml << "#--------------------------------------------------------------------------------------------" << std::endl;
+        yaml << std::endl;
+        yaml << "# Camera calibration and distortion parameters (OpenCV) " << std::endl;
+        yaml << "Camera.fx: " << camera_matrix.at<double>(0,0) << std::endl;
+        yaml << "Camera.fy: " << camera_matrix.at<double>(1,1) << std::endl;
+        yaml << "Camera.cx: " << camera_matrix.at<double>(0,2) << std::endl;
+        yaml << "Camera.cy: " << camera_matrix.at<double>(1,2) << std::endl;
+        yaml << std::endl;
+        yaml << "Camera.k1: " << dist_coeffs.at<double>(0,0) << std::endl;
+        yaml << "Camera.k2: " << dist_coeffs.at<double>(0,1) << std::endl;
+        yaml << "Camera.p1: " << dist_coeffs.at<double>(0,2) << std::endl;
+        yaml << "Camera.p2: " << dist_coeffs.at<double>(0,3) << std::endl;
+        yaml << "Camera.k3: " << dist_coeffs.at<double>(0,4) << std::endl;
+        yaml << std::endl;
+        yaml << "Camera.fps: " << frame_rate << std::endl;
+        yaml << std::endl;
+        yaml << "# Color order of the images (0: BGR, 1: RGB. It is ignored if images are grayscale)" << std::endl;
+        yaml << "Camera.RGB: 0" << std::endl; //OpenCV always uses BGR
+        yaml << std::endl;
+        yaml << "#--------------------------------------------------------------------------------------------" << std::endl;   
+        yaml << "# ORB Parameters" << std::endl;
+        yaml << "#--------------------------------------------------------------------------------------------" << std::endl;
+        yaml << std::endl;
+        yaml << "# ORB Extractor: Number of features per image" << std::endl;
+        yaml << "ORBextractor.nFeatures: " << orb_params[0] << std::endl;
+        yaml << std::endl;
+        yaml << "# ORB Extractor: Scale factor between levels in the scale pyramid" << std::endl;
+        yaml << "ORBextractor.scaleFactor: " << orb_params[1] << std::endl;
+        yaml << std::endl;
+        yaml << "# ORB Extractor: Number of levels in the scale pyramid" << std::endl;
+        yaml << "ORBextractor.nLevels: " << orb_params[2] << std::endl;
+        yaml << std::endl;
+        yaml << "# ORB Extractor: Fast threshold" << std::endl;
+        yaml << "# Image is divided in a grid. At each cell FAST are extracted imposing a minimum response." << std::endl;
+        yaml << "# Firstly we impose iniThFAST. If no corners are detected we impose a lower value minThFAST" << std::endl;
+        yaml << "# You can lower these values if your images have low contrast" << std::endl;			
+        yaml << "ORBextractor.iniThFAST: " << orb_params[3] << std::endl;
+        yaml << "ORBextractor.minThFAST: " << orb_params[4] << std::endl;
+        yaml << std::endl;
+        yaml << "#--------------------------------------------------------------------------------------------" << std::endl;	
+        yaml << "# Viewer Parameters" << std::endl;	
+        yaml << "#--------------------------------------------------------------------------------------------" << std::endl;	
+        yaml << "Viewer.KeyFrameSize: " << viewer_params[0] << std::endl;
+        yaml << "Viewer.KeyFrameLineWidth: " << viewer_params[1] << std::endl;
+        yaml << "Viewer.GraphLineWidth: " << viewer_params[2] << std::endl;
+        yaml << "Viewer.PointSize: " << viewer_params[3] << std::endl;
+        yaml << "Viewer.CameraSize: " << viewer_params[4] << std::endl;
+        yaml << "Viewer.CameraLineWidth: " << viewer_params[5] << std::endl;
+        yaml << "Viewer.ViewpointX: " << viewer_params[6] << std::endl;
+        yaml << "Viewer.ViewpointY: " << viewer_params[7] << std::endl;
+        yaml << "Viewer.ViewpointZ: " << viewer_params[8] << std::endl;
+        yaml << "Viewer.ViewpointF: " << viewer_params[9] << std::endl;
+        //end of file contents
+        yaml.close();
+    }
+    void Monocular_Camera::start(bool rectify_images){
+        shutdown = false;
+        has_updated = false;
+        latest_frame = new cv::Mat(frame_size, CV_8UC3);
+        latest_frame_rectified = new cv::Mat(frame_size, CV_8UC3);
+        temp_frame = new cv::Mat(frame_size, CV_8UC3);
+        temp_frame_rectified = new cv::Mat(frame_size, CV_8UC3);
+        this_thread = std::thread(&Monocular_Camera::run_thread, this, rectify_images);
+    }
+    void Monocular_Camera::stop(){
+        shutdown = true;
+        this_thread.join();
+        delete latest_frame;
+        delete latest_frame_rectified;
+        delete temp_frame;
+        delete temp_frame_rectified;
+    }
+    void Monocular_Camera::init_frame(cv::Mat **frame){
+        *frame = new cv::Mat(frame_size, CV_8UC3);
+    }
+    void Monocular_Camera::calibrate_camera(cv::Size chessboard_dim){
+        { 
+            camera.set(cv::CAP_PROP_FRAME_WIDTH, frame_size.width);
+            camera.set(cv::CAP_PROP_FRAME_HEIGHT, frame_size.height);
+            camera.set(cv::CAP_PROP_FPS, frame_rate);
+            double actual_width = camera.get(cv::CAP_PROP_FRAME_WIDTH);
+            double actual_height = camera.get(cv::CAP_PROP_FRAME_HEIGHT);
+            double actual_fps = camera.get(cv::CAP_PROP_FPS);
+            if(actual_width!=frame_size.width) throw std::runtime_error("WIDTH WAS " + std::to_string(actual_width) + "  NOT " + std::to_string(frame_size.width));
+            if(actual_height!=frame_size.height) throw std::runtime_error("HEIGHT WAS " + std::to_string(actual_height) + "  NOT " + std::to_string(frame_size.height));
+            if(actual_fps!=frame_rate) throw std::runtime_error("FRAME RATE WAS " + std::to_string(actual_fps) + "  NOT " + std::to_string(frame_rate));
+        }
+                        
+        std::vector<std::vector<cv::Point2f>> imgpoints; //stores 2D points for location of chessboard corners found in image
+        std::vector<std::vector<cv::Point3f>> objpoints; //stores 3D points for location of chessboard corners in world frame
+        { //Block for gathering 2D->3D correspondence from chessboard images
+            //Creating appropriate 3D coordinate plane for chessboard size
+            std::vector<cv::Point3f> real_corners;
+            for(int j=0; j<chessboard_dim.height; ++j)
+                for(int i=0; i<chessboard_dim.width; ++i)
+                    real_corners.push_back(cv::Point3f(i,j,0)); //Maps corners to x,y,z plane with z=0 being chessboard surface
+            
+            cv::namedWindow("Camera Feed");
+            int fail_count = 0;
+            cv::Mat frame_color;
+            cv::Mat frame_gray;
+            while(fail_count < 10){
+                if(!camera.grab()){ //failed to get frame
+                    ++fail_count;
+                    continue;
+                }
+                camera.retrieve(frame_color, 0);
+                cv::imshow("Camera Feed", frame_color);
+                int key = cv::waitKey(1);
+                if(key%256 == 27) //ESC was pressed, stop taking frames
+                    break;
+                if(key%256 == 32){ //SPACE was presed, process the frames
+                    std::vector<cv::Point2f> frame_corners;
+                    cv::cvtColor(frame_color, frame_gray, cv::COLOR_BGR2GRAY);
+                    if(!cv::findChessboardCorners(frame_gray, chessboard_dim, frame_corners, 0)) //no chesssboard was found
+                        continue; //jump to the next loop
+                    cv::TermCriteria termcrit(cv::TermCriteria::COUNT | cv::TermCriteria::EPS,20,0.03);
+                    cv::cornerSubPix(frame_gray, frame_corners, {5,5}, {-1,-1}, termcrit); //refine the location of the chessboard corners
+                    imgpoints.push_back(frame_corners); //save 2D points
+                    objpoints.push_back(real_corners); //save 3D mapping of 2D points
+                    cv::drawChessboardCorners(frame_color, chessboard_dim, frame_corners, true);
+                    cv::imshow("Camera Feed", frame_color);
+                    cv::waitKey(500);
+                }
+            }
+            cv::destroyAllWindows();
+            if(fail_count>=10) throw std::runtime_error( "UNABLE TO GET IMAGES FROM CAMERA" );
+        }
+
+        //Use objpoints and imgpoints to create camera_matrix and dist_coeffs
+        //These are used to undistort later images and create a 2D->3D mapping 
+        std::vector<cv::Mat> rvecs;
+        std::vector<cv::Mat> tvecs;
+        cv::calibrateCamera(objpoints, imgpoints, chessboard_dim, camera_matrix, dist_coeffs, rvecs, tvecs, 0);
+    }    
+    void Monocular_Camera::load_camera_properties(std::string prop_path){
+        cv::FileStorage fs(prop_path, cv::FileStorage::READ);
+        if (!fs.isOpened()) throw std::runtime_error("UNABLE TO OPEN PROPERTIES FILE");
+        fs["frame_size"] >> frame_size;
+        fs["frame_rate"] >> frame_rate;
+        fs["camera_matrix"] >> camera_matrix;
+        fs["dist_coeffs"] >> dist_coeffs;
+        fs.release();
+        camera.set(cv::CAP_PROP_FRAME_WIDTH, frame_size.width);
+        camera.set(cv::CAP_PROP_FRAME_HEIGHT, frame_size.height);
+        camera.set(cv::CAP_PROP_FPS, frame_rate);
+    }
+    void Monocular_Camera::save_camera_properties(std::string prop_path){
+        cv::FileStorage fs(prop_path, cv::FileStorage::WRITE);
+        if (!fs.isOpened())  throw std::runtime_error("UNABLE TO CREATE PROPERTIES FILE");
+        fs << "frame_size" << frame_size;
+        fs << "frame_rate" << frame_rate;
+        fs << "camera_matrix" << camera_matrix;
+        fs << "dist_coeffs" << dist_coeffs;
+        fs.release();
+    }
+    void Monocular_Camera::run_thread(bool rectify_images){
+        while(!shutdown){
+            if(rectify_images)
+                update_frame_rectified();
+            else
+                update_frame();
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
+    void Monocular_Camera::update_frame(){
+        camera.grab();
+        camera.retrieve(*temp_frame, 0);
+        thread_status.lock();
+        swap(latest_frame, temp_frame);
+        has_updated = true;
+        thread_status.unlock();
+    }
+    void Monocular_Camera::update_frame_rectified(){
+        camera.grab();
+        camera.retrieve(*temp_frame, 0);
+        cv::undistort(*temp_frame, *temp_frame_rectified, camera_matrix, dist_coeffs, camera_matrix);
+        thread_status.lock();
+        swap(latest_frame, temp_frame);
+        swap(latest_frame_rectified, temp_frame_rectified);
+        has_updated = true;
+        thread_status.unlock();
+    }
+    /*==========================================================*/    
+    /*End of monocular class*/  
+    /*==========================================================*/   
+
+    /*==========================================================*/    
+    /*Start of stereo class*/  
+    /*==========================================================*/   
+    Stereo_Camera::Stereo_Camera(int left_cam_num, int right_cam_num, std::string prop_path){
+        left_camera = cv::VideoCapture(left_cam_num);
+        if(!left_camera.isOpened()) std::runtime_error( "ERROR CONFIGURING LEFT CAMERA" );
+        right_camera = cv::VideoCapture(right_cam_num);
+        if(!right_camera.isOpened()) std::runtime_error( "ERROR CONFIGURING RIGHT CAMERA" );
+        load_camera_properties(prop_path);
+    }
+    Stereo_Camera::Stereo_Camera(int left_cam_num, int right_cam_num, std::string prop_path, cv::Size frame_size, int frame_rate, double baseline_dist,  cv::Size chessboard_dim){
+        left_camera = cv::VideoCapture(left_cam_num);
+        if(!left_camera.isOpened()) std::runtime_error( "ERROR CONFIGURING LEFT CAMERA" );
+        right_camera = cv::VideoCapture(right_cam_num);
+        if(!right_camera.isOpened()) std::runtime_error( "ERROR CONFIGURING RIGHT CAMERA" );
+        this->frame_size = frame_size;
+        this->frame_rate = frame_rate;
+        this->baseline_dist = baseline_dist;
+        calibrate_stereo_camera(chessboard_dim);
+        save_stereo_camera_properties(prop_path);
+    }
+    void Stereo_Camera::get_stereo_frame(cv::Mat **left_frame_out, cv::Mat **right_frame_out){
+        while(latest_frame_left==nullptr || latest_frame_right==nullptr)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        thread_status.lock();
+        swap(left_frame_out, &latest_frame_left);
+        swap(right_frame_out, &latest_frame_right);
+        latest_frame_left = nullptr;
+        latest_frame_right = nullptr;
+        thread_status.unlock();
+    }
+    void Stereo_Camera::get_stereo_frame_rectified(cv::Mat **left_frame_out, cv::Mat **right_frame_out){
+        while(!has_updated)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        thread_status.lock();
+        swap(left_frame_out, &latest_frame_left_rectified);
+        swap(right_frame_out, &latest_frame_right_rectified);
+        has_updated = false;
+        thread_status.unlock();
+    }
+    void Stereo_Camera::create_orbslam_settings(std::string yaml_path, const double orb_params[5], const double viewer_params[10], int ThDepth){
+            std::fstream yaml(yaml_path, std::fstream::out);
+        if(!yaml.is_open()) throw std::runtime_error("UNABLE TO CREATE SETTINGS FILE");
+        //start of file contents
+        yaml << "%YAML:1.0" << std::endl;
+        yaml << std::endl;
+        yaml << "#--------------------------------------------------------------------------------------------" << std::endl;
+        yaml << "# Camera Parameters for Stereo Camera" << std::endl;
+        yaml << "#--------------------------------------------------------------------------------------------" << std::endl;
+        yaml << std::endl;
+        yaml << "# Camera calibration and distortion parameters for left camera (OpenCV) " << std::endl;
+        yaml << "Camera.fx: " << left_camera_matrix.at<double>(0,0) << std::endl;
+        yaml << "Camera.fy: " << left_camera_matrix.at<double>(1,1) << std::endl;
+        yaml << "Camera.cx: " << left_camera_matrix.at<double>(0,2) << std::endl;
+        yaml << "Camera.cy: " << left_camera_matrix.at<double>(1,2) << std::endl;
+        yaml << std::endl; //All distortion constants are 0 as the image is already rectified
+        yaml << "Camera.k1: " << 0 << std::endl;
+        yaml << "Camera.k2: " << 0 << std::endl;
+        yaml << "Camera.p1: " << 0 << std::endl;
+        yaml << "Camera.p2: " << 0 << std::endl;
+        yaml << std::endl;
+        yaml << "Camera.width: " << frame_size.width << std::endl;
+        yaml << "Camera.height: " << frame_size.height << std::endl;
+        yaml << std::endl;
+        yaml << "Camera.fps: " << frame_rate << std::endl;
+        yaml << std::endl;
+        yaml << "# stereo baseline times fx" << std::endl;
+        yaml << "Camera.bf: " << (left_camera_matrix.at<double>(0,0) * baseline_dist) << std::endl;
+        yaml << std::endl;
+        yaml << "# Color order of the images (0: BGR, 1: RGB. It is ignored if images are grayscale)" << std::endl;
+        yaml << "Camera.RGB: 0" << std::endl; //OpenCV always uses BGR
+        yaml << std::endl;
+        yaml << "# Close/Far threshold. Baseline times." << std::endl;
+        yaml << "ThDepth: " << ThDepth << std::endl;
+        yaml << std::endl;
+        yaml << "#--------------------------------------------------------------------------------------------" << std::endl;   
+        yaml << "# ORB Parameters" << std::endl;
+        yaml << "#--------------------------------------------------------------------------------------------" << std::endl;
+        yaml << std::endl;
+        yaml << "# ORB Extractor: Number of features per image" << std::endl;
+        yaml << "ORBextractor.nFeatures: " << orb_params[0] << std::endl;
+        yaml << std::endl;
+        yaml << "# ORB Extractor: Scale factor between levels in the scale pyramid" << std::endl;
+        yaml << "ORBextractor.scaleFactor: " << orb_params[1] << std::endl;
+        yaml << std::endl;
+        yaml << "# ORB Extractor: Number of levels in the scale pyramid" << std::endl;
+        yaml << "ORBextractor.nLevels: " << orb_params[2] << std::endl;
+        yaml << std::endl;
+        yaml << "# ORB Extractor: Fast threshold" << std::endl;
+        yaml << "# Image is divided in a grid. At each cell FAST are extracted imposing a minimum response." << std::endl;
+        yaml << "# Firstly we impose iniThFAST. If no corners are detected we impose a lower value minThFAST" << std::endl;
+        yaml << "# You can lower these values if your images have low contrast" << std::endl;			
+        yaml << "ORBextractor.iniThFAST: " << orb_params[3] << std::endl;
+        yaml << "ORBextractor.minThFAST: " << orb_params[4] << std::endl;
+        yaml << std::endl;
+        yaml << "#--------------------------------------------------------------------------------------------" << std::endl;	
+        yaml << "# Viewer Parameters" << std::endl;	
+        yaml << "#--------------------------------------------------------------------------------------------" << std::endl;	
+        yaml << "Viewer.KeyFrameSize: " << viewer_params[0] << std::endl;
+        yaml << "Viewer.KeyFrameLineWidth: " << viewer_params[1] << std::endl;
+        yaml << "Viewer.GraphLineWidth: " << viewer_params[2] << std::endl;
+        yaml << "Viewer.PointSize: " << viewer_params[3] << std::endl;
+        yaml << "Viewer.CameraSize: " << viewer_params[4] << std::endl;
+        yaml << "Viewer.CameraLineWidth: " << viewer_params[5] << std::endl;
+        yaml << "Viewer.ViewpointX: " << viewer_params[6] << std::endl;
+        yaml << "Viewer.ViewpointY: " << viewer_params[7] << std::endl;
+        yaml << "Viewer.ViewpointZ: " << viewer_params[8] << std::endl;
+        yaml << "Viewer.ViewpointF: " << viewer_params[9] << std::endl;
+        //end of file contents
+        yaml.close();
+    }
+    void Stereo_Camera::create_disparity_matcher(int num_disparities, int block_size, int prefilter_cap, int prefilter_size, int prefilter_type, int texture_threshold, int uniqueness_ratio){
+        /* STEREOBM PARAMETER DESCRIPTIONS
+            num_disparities = 0;
+            block_size = 21; must be odd
+            prefilter_cap = 31; value of I_capp
+            prefilter_size = 9; limit of the window size for CV_STEREO_NORMALIZED_RESPONSE
+            prefilter_type = 0; type of algorithm used to smooth intensities
+            0=CV_STEREO_BM_NORMALIZED_RESPONSE normalizes intensities
+            1=CV_STEREO_BM_XSOBEL uses first order sobel derivatives in the x direction
+            texture_threshold = 10; minimum amount of intensity variation for block to be used
+            uniqueness_ratio = 15;
+            */
+        stereo_matcher = cv::StereoBM::create(num_disparities, block_size);
+        stereo_matcher->setPreFilterType(prefilter_type);
+        stereo_matcher->setPreFilterSize(prefilter_size);
+        stereo_matcher->setPreFilterCap(prefilter_cap);
+        stereo_matcher->setTextureThreshold(texture_threshold);
+        stereo_matcher->setUniquenessRatio(uniqueness_ratio);
+    }
+    void Stereo_Camera::get_disparity(cv::Mat& out_disparity){
+        if(stereo_matcher == nullptr)
+            create_disparity_matcher();
+        //grab frames
+        left_camera.grab();
+        right_camera.grab();
+        //decode frames
+        cv::Mat left_frame_color, right_frame_color;
+        left_camera.retrieve(left_frame_color, 0);
+        right_camera.retrieve(right_frame_color, 0);
+        //convert frames to grayscale
+        cv::Mat left_frame_gray, right_frame_gray;
+        cv::cvtColor(left_frame_color, left_frame_gray, cv::COLOR_BGR2GRAY);
+        cv::cvtColor(right_frame_color, right_frame_gray, cv::COLOR_BGR2GRAY);
+        //recitfy frames to be row aligned
+        cv::Mat left_fixed, right_fixed;
+        cv::remap(left_frame_gray, left_fixed, C0M0, C0M1, cv::INTER_LINEAR);
+        cv::remap(right_frame_gray, right_fixed, C1M0, C1M1, cv::INTER_LINEAR);
+        //generate dispairty map
+        stereo_matcher->compute(left_fixed, right_fixed, out_disparity);
+    }
+    void Stereo_Camera::start(bool rectify_images){
+        shutdown = false;
+        has_updated = false;
+        temp_frame_left = new cv::Mat(frame_size, CV_8UC3);
+        temp_frame_right = new cv::Mat(frame_size, CV_8UC3);
+        temp_frame_right_rectified = new cv::Mat(frame_size, CV_8UC3);
+        temp_frame_left_rectified = new cv::Mat(frame_size, CV_8UC3);
+        latest_frame_left = new cv::Mat(frame_size, CV_8UC3);;
+        latest_frame_right = new cv::Mat(frame_size, CV_8UC3);
+        latest_frame_left_rectified = new cv::Mat(frame_size, CV_8UC3);
+        latest_frame_right_rectified = new cv::Mat(frame_size, CV_8UC3);
+        this_thread = std::thread(&Stereo_Camera::run_thread, this, rectify_images);
+    }
+    void Stereo_Camera::stop(){
+        shutdown = true;
+        this_thread.join();
+        delete temp_frame_left;
+        delete temp_frame_right;
+        delete temp_frame_right_rectified;
+        delete temp_frame_left_rectified;
+        delete latest_frame_left;
+        delete latest_frame_right;
+        delete latest_frame_left_rectified;
+        delete latest_frame_right_rectified;
+    }
+    void Stereo_Camera::init_frames(cv::Mat **left, cv::Mat **right){
+        *left =  new cv::Mat(frame_size, CV_8UC3);
+        *right =  new cv::Mat(frame_size, CV_8UC3);
+    }      
+    void Stereo_Camera::calibrate_stereo_camera(cv::Size chessboard_dim){
+        { //set camera parameters, and check that cameras adjust accordingly
+            double actual_width, actual_height, actual_fps;
+
+            left_camera.set(cv::CAP_PROP_FRAME_WIDTH, frame_size.width);
+            left_camera.set(cv::CAP_PROP_FRAME_HEIGHT, frame_size.height);
+            left_camera.set(cv::CAP_PROP_FPS, frame_rate);
+            actual_width = left_camera.get(cv::CAP_PROP_FRAME_WIDTH);
+            actual_height = left_camera.get(cv::CAP_PROP_FRAME_HEIGHT);
+            actual_fps = left_camera.get(cv::CAP_PROP_FPS);
+
+            if(actual_width!=frame_size.width) throw std::runtime_error("LEFT WIDTH WAS " + std::to_string(actual_width) + " NOT " + std::to_string(frame_size.width));
+            if(actual_height!=frame_size.height) throw std::runtime_error("LEFT HEIGHT WAS " + std::to_string(actual_height) + " NOT " + std::to_string(frame_size.height));
+            if(actual_fps!=frame_rate) throw std::runtime_error("LEFT FRAME RATE WAS " + std::to_string(actual_fps) + " NOT " + std::to_string(frame_rate));
+
+            right_camera.set(cv::CAP_PROP_FRAME_WIDTH, frame_size.width);
+            right_camera.set(cv::CAP_PROP_FRAME_HEIGHT, frame_size.height);
+            right_camera.set(cv::CAP_PROP_FPS, frame_rate);
+            actual_width = left_camera.get(cv::CAP_PROP_FRAME_WIDTH);
+            actual_height = left_camera.get(cv::CAP_PROP_FRAME_HEIGHT);
+            actual_fps = left_camera.get(cv::CAP_PROP_FPS);
+
+            if(actual_width!=frame_size.width) throw std::runtime_error("RIGHT WIDTH WAS " + std::to_string(actual_width) + " NOT " + std::to_string(frame_size.width));
+            if(actual_height!=frame_size.height) throw std::runtime_error("RIGHT HEIGHT WAS " + std::to_string(actual_height) + " NOT " + std::to_string(frame_size.height));
+            if(actual_fps!=frame_rate) throw std::runtime_error("RIGHT FRAME RATE WAS " + std::to_string(actual_fps) + " NOT " + std::to_string(frame_rate));
+        }
+
+        std::vector<std::vector<cv::Point2f>> left_imgpoints, right_imgpoints; //stores 2D points for location of chessboard corners found in image
+        std::vector<std::vector<cv::Point3f>> left_objpoints, right_objpoints; //stores 3D points for location of chessboard corners in world frame
+        { //Block for gathering 2D->3D correspondence from chessboard images
+            //Creating appropriate 3D coordinate plane for chessboard size
+            std::vector<cv::Point3f> real_corners;
+            for(int j=0; j<chessboard_dim.height; ++j)
+                for(int i=0; i<chessboard_dim.width; ++i)
+                    real_corners.push_back(cv::Point3f(i,j,0)); //Maps corners to x,y,z plane with z=0 being chessboard surface
+            
+            cv::namedWindow("Left Camera Feed");
+            cv::namedWindow("Right Camera Feed");
+            int fail_count = 0;
+            cv::Mat left_frame_color, right_frame_color;
+            cv::Mat left_frame_gray, right_frame_gray;
+            while(fail_count < 10){
+                if( !left_camera.grab() || !right_camera.grab()){ //one or more of the cameras failed to get frame
+                    ++fail_count;
+                    continue;
+                }
+                left_camera.retrieve(left_frame_color, 0);
+                right_camera.retrieve(right_frame_color, 0);
+                cv::imshow("Left Camera Feed", left_frame_color);
+                cv::imshow("Right Camera Feed", right_frame_color);
+                int key = cv::waitKey(1);
+                if(key%256 == 27) //ESC was pressed, stop taking frames
+                    break;
+                if(key%256 == 32){ //SPACE was presed, process the frames
+                    std::vector<cv::Point2f> left_frame_corners, right_frame_corners; //2D location of chessboard corners in each frame
+
+                    //convert both frames to grayscale
+                    cv::cvtColor(left_frame_color, left_frame_gray, cv::COLOR_BGR2GRAY);
+                    cv::cvtColor(right_frame_color, right_frame_gray, cv::COLOR_BGR2GRAY);
+
+                    //search for chessboards in both frames
+                    bool found_left_chessboard = cv::findChessboardCorners(left_frame_gray, chessboard_dim, left_frame_corners, 0);
+                    bool found_right_chessboard = cv::findChessboardCorners(right_frame_gray, chessboard_dim, right_frame_corners, 0);
+
+                    //if one or more frame did not contaiin a chessbaord
+                    if(!found_left_chessboard || !found_right_chessboard)
+                        continue; //jump to the next loop
+                    cv::TermCriteria termcrit(cv::TermCriteria::COUNT | cv::TermCriteria::EPS,20,0.03);
+
+                    //refine corner locations for both frames
+                    cv::cornerSubPix(left_frame_gray, left_frame_corners, {5,5}, {-1,-1}, termcrit); //refine the location of the chessboard corners
+                    cv::cornerSubPix(right_frame_gray, right_frame_corners, {5,5}, {-1,-1}, termcrit); //refine the location of the chessboard corners
+
+                    left_imgpoints.push_back(left_frame_corners); //save 2D points
+                    left_objpoints.push_back(real_corners); //save 3D mapping of 2D points
+
+                    right_imgpoints.push_back(right_frame_corners); //save 2D points
+                    right_objpoints.push_back(real_corners); //save 3D mapping of 2D points
+
+                    //display found corners
+                    cv::drawChessboardCorners(left_frame_color, chessboard_dim, left_frame_corners, true);
+                    cv::drawChessboardCorners(right_frame_color, chessboard_dim, right_frame_corners, true);
+
+                    cv::imshow("Left Camera Feed", left_frame_color);
+                    cv::imshow("Right Camera Feed", right_frame_color);
+                    cv::waitKey(500);
+                }
+            }
+            cv::destroyAllWindows();
+            if(fail_count>=10) throw std::runtime_error( "UNABLE TO GET IMAGES FROM CAMERA" );
+        }
+
+        //Use objpoints and imgpoints to create a camera_matrix and dist_coeffs for both frames
+        //These are used to undistort later images and create a 2D->3D mapping 
+        std::vector<cv::Mat> left_rvecs, right_rvecs;
+        std::vector<cv::Mat> left_tvecs, right_tvecs;
+        cv::calibrateCamera(left_objpoints, left_imgpoints, chessboard_dim, left_camera_matrix, left_dist_coeffs, left_rvecs, left_tvecs, 0);
+        cv::calibrateCamera(right_objpoints, right_imgpoints, chessboard_dim, right_camera_matrix, right_dist_coeffs, right_rvecs, right_tvecs, 0);
+
+        cv::Mat R0, R1, P0, P1, Q, E, F;
+        //Calculate the relative rotation (R) and translation (T) between the two frames. CALIB_FIX_INTRINSIC= use already determined camera matrices
+        cv::stereoCalibrate(left_objpoints, left_imgpoints, right_imgpoints, left_camera_matrix, left_dist_coeffs, right_camera_matrix, right_dist_coeffs, frame_size, R, T, E, F, cv::CALIB_FIX_INTRINSIC);
+        //Use R and T to create remapping matrices C0M0 C0M1 C1M0 C1M1 which  rectify the two images (make them row aligned.) 
+        //CALIB_ZERO_DISPARITY = align both frames so their principle points have the same pixel coordinates
+        cv::stereoRectify(left_camera_matrix, left_dist_coeffs, right_camera_matrix, right_dist_coeffs, frame_size, R, T, R0, R1, P0, P1, Q, cv::CALIB_ZERO_DISPARITY, 0);
+        cv::initUndistortRectifyMap(left_camera_matrix, left_dist_coeffs, R0, P0, frame_size, CV_32FC1, C0M0, C0M1);
+        initUndistortRectifyMap(right_camera_matrix, right_dist_coeffs, R1, P1, frame_size, CV_32FC1, C1M0, C1M1);
+    }
+    void Stereo_Camera::load_camera_properties(std::string prop_path){
+        cv::FileStorage fs(prop_path, cv::FileStorage::READ);
+        if (!fs.isOpened()) throw std::runtime_error("UNABLE TO OPEN PROPERTIES FILE");
+        fs["frame_size"] >> frame_size;
+        fs["frame_rate"] >> frame_rate;
+        fs["baseline_dist"] >> baseline_dist;
+        fs["left_camera_matrix"] >> left_camera_matrix;
+        fs["right_camera_matrix"] >> right_camera_matrix;
+        fs["left_dist_coeffs"] >> left_dist_coeffs;
+        fs["right_dist_coeffs"] >> right_dist_coeffs;
+        fs["R"] >> R;
+        fs["T"] >> T;
+        fs.release();
+        left_camera.set(cv::CAP_PROP_FRAME_WIDTH, frame_size.width);
+        left_camera.set(cv::CAP_PROP_FRAME_HEIGHT, frame_size.height);
+        left_camera.set(cv::CAP_PROP_FPS, frame_rate);
+        right_camera.set(cv::CAP_PROP_FRAME_WIDTH, frame_size.width);
+        right_camera.set(cv::CAP_PROP_FRAME_HEIGHT, frame_size.height);
+        right_camera.set(cv::CAP_PROP_FPS, frame_rate);
+        cv::Mat R0, R1, P0, P1, Q;;
+        //Use R and T to create remapping matrices C0M0 C0M1 C1M0 C1M1 which  rectify the two images (make them row aligned.) 
+        //CALIB_ZERO_DISPARITY = align both frames so their principle points have the same pixel coordinates
+        cv::stereoRectify(left_camera_matrix, left_dist_coeffs, right_camera_matrix, right_dist_coeffs, frame_size, R, T, R0, R1, P0, P1, Q, cv::CALIB_ZERO_DISPARITY, 0);
+        cv::initUndistortRectifyMap(left_camera_matrix, left_dist_coeffs, R0, P0, frame_size, CV_32FC1, C0M0, C0M1);
+        cv::initUndistortRectifyMap(right_camera_matrix, right_dist_coeffs, R1, P1, frame_size, CV_32FC1, C1M0, C1M1);
+    }
+    void Stereo_Camera::save_stereo_camera_properties(std::string prop_path){
+        cv::FileStorage fs(prop_path, cv::FileStorage::WRITE);
+        if (!fs.isOpened())  throw std::runtime_error("UNABLE TO CREATE PROPERTIES FILE");
+        fs << "frame_size" << frame_size;
+        fs << "frame_rate" << frame_rate;
+        fs << "baseline_dist" << baseline_dist;
+        fs << "left_camera_matrix" << left_camera_matrix;
+        fs << "right_camera_matrix" << right_camera_matrix;
+        fs << "left_dist_coeffs" << left_dist_coeffs;
+        fs << "right_dist_coeffs" << right_dist_coeffs;
+        fs << "R" << R;
+        fs << "T" << T;
+        fs.release();
+    }
+    void Stereo_Camera::run_thread(bool rectify_images){
+        if(rectify_images){
+            while(!shutdown){
+                update_stereo_frame_rectified();
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+        }
+        else{
+            while(!shutdown){
+                update_stereo_frame();
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+        }                
+    }
+    void Stereo_Camera::update_stereo_frame(){
+        // Grab and retrieve the latest frames
+        left_camera.grab();
+        right_camera.grab();
+        left_camera.retrieve(*temp_frame_left, 0);
+        right_camera.retrieve(*temp_frame_right, 0);
+        // Swap the latest images with the previous ones
+        thread_status.lock();
+        swap(&latest_frame_left, &temp_frame_left);
+        swap(&latest_frame_right, &temp_frame_right);
+        thread_status.unlock();
+        // Delete the old frames, which are now in the temp fields
+    }
+    void Stereo_Camera::update_stereo_frame_rectified(){
+        // Grab and retrieve the latest frames
+        left_camera.grab();
+        right_camera.grab();
+        left_camera.retrieve(*temp_frame_left, 0);
+        right_camera.retrieve(*temp_frame_right, 0);
+        // Undistort the images
+        cv::remap(*temp_frame_left, *temp_frame_left_rectified, C0M0, C0M1, cv::INTER_LINEAR);
+        cv::remap(*temp_frame_right, *temp_frame_right_rectified, C1M0, C1M1, cv::INTER_LINEAR);
+        // Swap the latest images with the previous ones
+        thread_status.lock();
+        swap(&latest_frame_left, &temp_frame_left);
+        swap(&latest_frame_right, &temp_frame_right);
+        swap(&latest_frame_left_rectified, &temp_frame_left_rectified);
+        swap(&latest_frame_right_rectified, &temp_frame_right_rectified);
+        has_updated = true;
+        thread_status.unlock();
+        // Delete the old frames, which are now in the temp fields
+    }
+    /*==========================================================*/    
+    /*End of stereo class*/  
+    /*==========================================================*/   
+}

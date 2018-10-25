@@ -19,6 +19,7 @@ int session_num = 0;
 string session_dir = "session_0000/";
 std::string frame_dir;
 unsigned int session_duration_sec = 30;
+ std::string prev_session_dir;
 
 void start_mono_slam(camera_utilities::Monocular_Camera &mono_camera);
 void start_stereo_slam(camera_utilities::Stereo_Camera &stereo_camera);
@@ -139,12 +140,22 @@ int main(){
 }
 
 void start_mono_slam(camera_utilities::Monocular_Camera &mono_camera){
+    std::string map_path = "";
+    char load_map;
+    std::cout << "LOAD MAP? <Y/N>: ";
+    std::cin >> load_map;
+    if(load_map=='Y' or load_map=='y'){
+        map_path = output_dir+prev_session_dir+"mono_data.map";
+    }
+
     //Creating ORB object
-    ORB_SLAM2::System SLAM(orb_voc_path, output_dir+session_dir+"mono_camera.yaml", "", ORB_SLAM2::System::MONOCULAR,true);
+    ORB_SLAM2::System SLAM(orb_voc_path, output_dir+session_dir+"mono_camera.yaml", map_path, ORB_SLAM2::System::MONOCULAR,true);
     
     //Prepare to load frame
-    cv::Mat frame;
     int frame_number = 0;
+    cv::Mat* frame;
+    mono_camera.init_frame(&frame);
+    mono_camera.start(true);
     
     //Determine naming schema for saved frames
     stringstream ss;
@@ -159,18 +170,20 @@ void start_mono_slam(camera_utilities::Monocular_Camera &mono_camera){
     while(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - session_start).count() < session_duration_sec){
         //Process frame
         frame_start = std::chrono::steady_clock::now();
-        mono_camera.get_frame(frame);
-        SLAM.TrackMonocular(frame, frame_number);
+        mono_camera.get_frame_undistorted(&frame);
+        SLAM.TrackMonocular(*frame, frame_number);
 
         //Save frame
         ss << setw(pad_to_width) << setfill('0') << frame_number;
-        cv::imwrite(frame_dir+ ss.str() +".png", frame);
+        cv::imwrite(frame_dir+ ss.str() +".png", *frame);
         frame_number++;
         ss.str("");
 
         frame_end = std::chrono::steady_clock::now();
         frame_times.push_back(std::chrono::duration_cast<std::chrono::duration<double>>(frame_end - frame_start).count());
     }
+    mono_camera.stop();
+    delete frame;
     SLAM.Shutdown();
     SLAM.SaveKeyFrameTrajectoryTUM(output_dir+session_dir+"mono_keyframe_trajectory.txt");
     SLAM.SaveMap(output_dir+session_dir+"mono_data.map");
@@ -178,8 +191,16 @@ void start_mono_slam(camera_utilities::Monocular_Camera &mono_camera){
 }
 
 void start_stereo_slam(camera_utilities::Stereo_Camera &stereo_camera){
+    std::string map_path = "";
+    char load_map;
+    std::cout << "LOAD MAP? <Y/N>: ";
+    std::cin >> load_map;
+    if(load_map=='Y' or load_map=='y'){
+        map_path = output_dir+prev_session_dir+"stereo_data.map";
+    }
+
     //Creating ORB object
-    ORB_SLAM2::System SLAM(orb_voc_path, output_dir+session_dir+"stereo_camera.yaml", "", ORB_SLAM2::System::STEREO,true);
+    ORB_SLAM2::System SLAM(orb_voc_path, output_dir+session_dir+"stereo_camera.yaml", map_path, ORB_SLAM2::System::STEREO,true);
     //Determine naming schema for saved frames
     stringstream ss;
     int pad_to_width = to_string(session_duration_sec*100).length();
@@ -252,7 +273,7 @@ string load_previous_calibration(string camera_type){
     stringstream ss;
     string prop_path;
     ss << setw(4) << setfill('0') << (session_num-1);
-    std::string prev_session_dir = "session_" + ss.str() + "/";
+    prev_session_dir = "session_" + ss.str() + "/";
         
     //Check the previous session directory for a camera properties file
     prop_path = output_dir+prev_session_dir+ camera_type + "_camera_properties.yaml";

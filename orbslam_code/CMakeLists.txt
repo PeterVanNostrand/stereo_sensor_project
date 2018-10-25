@@ -62,6 +62,7 @@ ${ORB_SLAM2_DIR}/src/KeyFrameDatabase.cc
 ${ORB_SLAM2_DIR}/src/Sim3Solver.cc
 ${ORB_SLAM2_DIR}/src/Initializer.cc
 ${ORB_SLAM2_DIR}/src/Viewer.cc
+${PROJECT_SOURCE_DIR}/../camera_utilities.cpp
 )
 
 target_link_libraries(${PROJECT_NAME}
