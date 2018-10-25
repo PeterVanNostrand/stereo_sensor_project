@@ -16,8 +16,6 @@ namespace camera_utilities {
     const double default_mono_orb_params[5] = {1000,1.2,8,20,7};
     const double default_stereo_viewer_params[10] = {0.6,2,1,2,0.7,3,0,-100,-0.1,2000};
     const double default_stereo_orb_params[5] = {2000,1.2,8,12,7};
-    bool shutdown = false;
-    bool paused = false;
 
     class Monocular_Camera {
         public:
@@ -115,7 +113,8 @@ namespace camera_utilities {
             cv::Size frame_size;
             int frame_rate;
             cv::Mat camera_matrix;
-            cv::Mat dist_coeffs;         
+            cv::Mat dist_coeffs;
+            bool shutdown = false;
             void calibrate_camera(cv::Size chessboard_dim){
                 { 
                     camera.set(cv::CAP_PROP_FRAME_WIDTH, frame_size.width);
@@ -219,74 +218,24 @@ namespace camera_utilities {
                 calibrate_stereo_camera(chessboard_dim);
                 save_stereo_camera_properties(prop_path);
             }
-            void get_stereo_frame(cv::Mat *(out_frames)[2]){
-                paused = true;
-                while(latest_frames[0]==nullptr || latest_frames[1] == nullptr); //wait for the current update to finish
-                out_frames[0] = latest_frames[0];
-                out_frames[1] = latest_frames[1];
-                latest_frames[0] = nullptr;
-                latest_frames[1] = nullptr;
-                paused = false;
+            void get_stereo_frame(cv::Mat **left_frame_out, cv::Mat **right_frame_out){
+                while(latest_frame_left==nullptr || latest_frame_right==nullptr)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                thread_status.lock();
+                swap(left_frame_out, &latest_frame_left);
+                swap(right_frame_out, &latest_frame_right);
+                latest_frame_left = nullptr;
+                latest_frame_right = nullptr;
+                thread_status.unlock();
             }
-            void get_stereo_frame_rectified(cv::Mat *(out_frames)[2]){
-                paused = true;
-                while(latest_rectified_frames[0]==nullptr || latest_rectified_frames[1] == nullptr); //wait for the current update to finish
-                out_frames[0] = latest_rectified_frames[0];
-                out_frames[1] = latest_rectified_frames[1];
-                latest_rectified_frames[0] = nullptr;
-                latest_rectified_frames[1] = nullptr;
-                paused = false;
-            }
-            void update_stereo_frame(){
-                cv::Mat *temp_frames[2];
-                temp_frames[0] = new cv::Mat(frame_size, CV_8UC3);
-                temp_frames[1] = new cv::Mat(frame_size, CV_8UC3);
-
-                left_camera.grab();
-                right_camera.grab();
-
-                left_camera.retrieve(*temp_frames[0], 0);
-                right_camera.retrieve(*temp_frames[1], 0);
-
-                cv::Mat *swap_space[2];
-                swap_space[0] = latest_frames[0];
-                swap_space[1] = latest_frames[1];
-
-                latest_frames[0] = nullptr;
-                latest_frames[1] = nullptr;
-
-                latest_frames[0] = temp_frames[0];
-                latest_frames[1] = temp_frames[1];
-
-                delete swap_space[0];
-                delete swap_space[1];
-            }
-            void update_stereo_frame_rectified(){
-                cv::Mat *temp_frames[2];
-                temp_frames[0] = new cv::Mat(frame_size, CV_8UC3);
-                temp_frames[1] = new cv::Mat(frame_size, CV_8UC3);
-
-                left_camera.grab();
-                right_camera.grab();
-
-                left_camera.retrieve(*temp_frames[0], 0);
-                right_camera.retrieve(*temp_frames[1], 0);
-
-                cv::remap(*temp_frames[0], *temp_frames[0], C0M0, C0M1, cv::INTER_LINEAR);
-                cv::remap(*temp_frames[1], *temp_frames[1], C1M0, C1M1, cv::INTER_LINEAR);
-
-                cv::Mat *swap_space[2];
-                swap_space[0] = latest_rectified_frames[0];
-                swap_space[1] = latest_rectified_frames[1];
-
-                latest_rectified_frames[0] = nullptr;
-                latest_rectified_frames[1] = nullptr;
-
-                latest_rectified_frames[0] = temp_frames[0];
-                latest_rectified_frames[1] = temp_frames[1];
-
-                delete swap_space[0];
-                delete swap_space[1];
+            void get_stereo_frame_rectified(cv::Mat **left_frame_out, cv::Mat **right_frame_out){
+                while(!has_updated)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                thread_status.lock();
+                swap(left_frame_out, &latest_frame_left_rectified);
+                swap(right_frame_out, &latest_frame_right_rectified);
+                has_updated = false;
+                thread_status.unlock();
             }
             void create_orbslam_settings(std::string yaml_path, const double orb_params[5]=default_stereo_orb_params, const double viewer_params[10]=default_stereo_viewer_params, int ThDepth=40){
                  std::fstream yaml(yaml_path, std::fstream::out);
@@ -399,8 +348,39 @@ namespace camera_utilities {
                 //generate dispairty map
                 stereo_matcher->compute(left_fixed, right_fixed, out_disparity);
             }
+            void start(bool rectify_images){
+                shutdown = false;
+                has_updated = false;
+                temp_frame_left = new cv::Mat(frame_size, CV_8UC3);
+                temp_frame_right = new cv::Mat(frame_size, CV_8UC3);
+                temp_frame_right_rectified = new cv::Mat(frame_size, CV_8UC3);
+                temp_frame_left_rectified = new cv::Mat(frame_size, CV_8UC3);
+                latest_frame_left = new cv::Mat(frame_size, CV_8UC3);;
+                latest_frame_right = new cv::Mat(frame_size, CV_8UC3);
+                latest_frame_left_rectified = new cv::Mat(frame_size, CV_8UC3);
+                latest_frame_right_rectified = new cv::Mat(frame_size, CV_8UC3);
+                this_thread = std::thread(&Stereo_Camera::run_thread, this, rectify_images);
+            }
+            void stop(){
+                shutdown = true;
+                this_thread.join();
+                delete temp_frame_left;
+                delete temp_frame_right;
+                delete temp_frame_right_rectified;
+                delete temp_frame_left_rectified;
+                delete latest_frame_left;
+                delete latest_frame_right;
+                delete latest_frame_left_rectified;
+                delete latest_frame_right_rectified;
+            }
+            void init_frames(cv::Mat **left, cv::Mat **right){
+                *left =  new cv::Mat(frame_size, CV_8UC3);
+                *right =  new cv::Mat(frame_size, CV_8UC3);
+            }
         private:
+            // Camera objects
             cv::VideoCapture left_camera, right_camera;
+            // Camera properties
             cv::Size frame_size;
             int frame_rate;
             cv::Mat left_camera_matrix, right_camera_matrix;
@@ -410,9 +390,20 @@ namespace camera_utilities {
             cv::Mat C1M0, C1M1; //cam 1 map 0, cam 1 map 1 -- 0=left 1=right
             double baseline_dist; //horizontal distance between camera centers in meters
             cv::Ptr<cv::StereoBM> stereo_matcher;
-            cv::Mat *latest_frames[2];
-            cv::Mat *latest_rectified_frames[2];
+            // Pointers to frames
+            cv::Mat *latest_frame_left, *latest_frame_right, *latest_frame_left_rectified, *latest_frame_right_rectified;
+            // Threading fields
+            std::thread this_thread;
+            std::mutex thread_status;
+            bool shutdown;
+            bool has_updated;
+             cv::Mat *temp_frame_left, *temp_frame_right, *temp_frame_left_rectified, *temp_frame_right_rectified;
 
+            void swap(cv::Mat  **a, cv::Mat **b){
+                cv::Mat *temp = *a;
+                *a = *b;
+                *b = temp;
+            }            
             void calibrate_stereo_camera(cv::Size chessboard_dim){
                 { //set camera parameters, and check that cameras adjust accordingly
                     double actual_width, actual_height, actual_fps;
@@ -469,7 +460,7 @@ namespace camera_utilities {
                         if(key%256 == 32){ //SPACE was presed, process the frames
                             std::vector<cv::Point2f> left_frame_corners, right_frame_corners; //2D location of chessboard corners in each frame
 
-                            //convert both frames to grayscale                            std::cout << "388" << std::endl;
+                            //convert both frames to grayscale
                             cv::cvtColor(left_frame_color, left_frame_gray, cv::COLOR_BGR2GRAY);
                             cv::cvtColor(right_frame_color, right_frame_gray, cv::COLOR_BGR2GRAY);
 
@@ -561,23 +552,51 @@ namespace camera_utilities {
                 fs << "T" << T;
                 fs.release();
             }
-    };
-
-    void run_camera_mono(camera_utilities::Monocular_Camera &cam){
-        while(!shutdown)
-            {}//cam.get_frame_undistorted();
-    }
-
-    void run_camera_stereo(camera_utilities::Stereo_Camera &cam){
-        while(!shutdown){
-            if(!paused){
-                cam.update_stereo_frame_rectified();
-                std::this_thread::sleep_for(std::chrono::microseconds(1000));
+            void run_thread(bool rectify_images){
+                if(rectify_images){
+                    while(!shutdown){
+                        update_stereo_frame_rectified();
+                        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                    }
+                }
+                else{
+                    while(!shutdown){
+                        update_stereo_frame();
+                        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                    }
+                }                
             }
-        }
-    }
-
-    void request_shutdown(){
-        shutdown = true;
-    }
+            void update_stereo_frame(){
+                // Grab and retrieve the latest frames
+                left_camera.grab();
+                right_camera.grab();
+                left_camera.retrieve(*temp_frame_left, 0);
+                right_camera.retrieve(*temp_frame_right, 0);
+                // Swap the latest images with the previous ones
+                thread_status.lock();
+                swap(&latest_frame_left, &temp_frame_left);
+                swap(&latest_frame_right, &temp_frame_right);
+                thread_status.unlock();
+                // Delete the old frames, which are now in the temp fields
+            }
+            void update_stereo_frame_rectified(){
+                // Grab and retrieve the latest frames
+                left_camera.grab();
+                right_camera.grab();
+                left_camera.retrieve(*temp_frame_left, 0);
+                right_camera.retrieve(*temp_frame_right, 0);
+                // Undistort the images
+                cv::remap(*temp_frame_left, *temp_frame_left_rectified, C0M0, C0M1, cv::INTER_LINEAR);
+                cv::remap(*temp_frame_right, *temp_frame_right_rectified, C1M0, C1M1, cv::INTER_LINEAR);
+                // Swap the latest images with the previous ones
+                thread_status.lock();
+                swap(&latest_frame_left, &temp_frame_left);
+                swap(&latest_frame_right, &temp_frame_right);
+                swap(&latest_frame_left_rectified, &temp_frame_left_rectified);
+                swap(&latest_frame_right_rectified, &temp_frame_right_rectified);
+                has_updated = true;
+                thread_status.unlock();
+                // Delete the old frames, which are now in the temp fields
+            }
+    };
 }

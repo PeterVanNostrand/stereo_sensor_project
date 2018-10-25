@@ -20,10 +20,10 @@ string session_dir = "session_0000/";
 std::string frame_dir;
 unsigned int session_duration_sec = 30;
 
-void start_mono_slam(camera_utilities::Monocular_Camera mono_camera);
-void start_stereo_slam(camera_utilities::Stereo_Camera stereo_camera);
+void start_mono_slam(camera_utilities::Monocular_Camera &mono_camera);
+void start_stereo_slam(camera_utilities::Stereo_Camera &stereo_camera);
+void start_stereo_disparity(camera_utilities::Stereo_Camera &stereo_camera);
 void display_statistics(std::vector<double> &frame_times);
-void start_stereo_disparity(camera_utilities::Stereo_Camera stereo_camera);
 string load_previous_calibration(string camera_type);
 
 int main(){
@@ -138,7 +138,7 @@ int main(){
     return 0;
 }
 
-void start_mono_slam(camera_utilities::Monocular_Camera mono_camera){
+void start_mono_slam(camera_utilities::Monocular_Camera &mono_camera){
     //Creating ORB object
     ORB_SLAM2::System SLAM(orb_voc_path, output_dir+session_dir+"mono_camera.yaml", "", ORB_SLAM2::System::MONOCULAR,true);
     
@@ -177,58 +177,47 @@ void start_mono_slam(camera_utilities::Monocular_Camera mono_camera){
     display_statistics(frame_times);
 }
 
-void start_stereo_slam(camera_utilities::Stereo_Camera stereo_camera){
-    //Launching camera on a new thread
-    thread t(camera_utilities::run_camera_stereo, std::ref(stereo_camera));
-    stereo_camera.update_stereo_frame_rectified();
-
+void start_stereo_slam(camera_utilities::Stereo_Camera &stereo_camera){
     //Creating ORB object
     ORB_SLAM2::System SLAM(orb_voc_path, output_dir+session_dir+"stereo_camera.yaml", "", ORB_SLAM2::System::STEREO,true);
-
-    //Prepare to laod frames
-    cv::Mat *frames[2];
-    stereo_camera.get_stereo_frame_rectified(frames);
-
     //Determine naming schema for saved frames
     stringstream ss;
     int pad_to_width = to_string(session_duration_sec*100).length();
     int frame_number = 0;
-
     //Prepare variables for statistics tracking
     std::chrono::steady_clock::time_point frame_start;
     std::chrono::steady_clock::time_point frame_end;
     std::vector<double> frame_times;
-
+    stereo_camera.start(true);
     std::chrono::steady_clock::time_point session_start = std::chrono::steady_clock::now();
+    cv::Mat *left_frame, *right_frame;
+    stereo_camera.init_frames(&left_frame, &right_frame);
     while(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - session_start).count() < session_duration_sec){
         //Process frame
         frame_start = std::chrono::steady_clock::now();
-        stereo_camera.get_stereo_frame_rectified(frames);
-        SLAM.TrackStereo(*frames[0], *frames[1], frame_number);
-
+        stereo_camera.get_stereo_frame_rectified(&left_frame, &right_frame);
+        SLAM.TrackStereo(*left_frame, *right_frame, frame_number);
         //Save frame
         ss << setw(pad_to_width) << setfill('0') << frame_number;
-        cv::imwrite(frame_dir + ss.str() + ".png", *frames[0]);
+        cv::imwrite(frame_dir + ss.str() + ".png", *left_frame);
         frame_number++;
         ss.str("");
-
-        delete frames[0];
-        delete frames[1];
-
+        // update statistics
         frame_end = std::chrono::steady_clock::now();
         frame_times.push_back(std::chrono::duration_cast<std::chrono::duration<double>>(frame_end - frame_start).count());
     }
+    delete left_frame;
+    delete right_frame;
 
     //Close ORB object, save trajectory and map
     SLAM.Shutdown();
-    camera_utilities::request_shutdown();
-    t.join();
+    stereo_camera.stop();
     SLAM.SaveTrajectoryTUM(output_dir+session_dir+"stereo_trajectory.txt");
     SLAM.SaveMap(output_dir+session_dir+"stereo_data.map");
     display_statistics(frame_times);
 }
 
-void start_stereo_disparity(camera_utilities::Stereo_Camera stereo_camera){
+void start_stereo_disparity(camera_utilities::Stereo_Camera &stereo_camera){
 	stereo_camera.create_disparity_matcher();
     cv::Mat frame;
 	int key;
