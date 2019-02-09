@@ -8,13 +8,13 @@
 #include <sys/stat.h>
 #include<opencv2/core/core.hpp>
 #include "System.h"
-#include "../camera_utilities.hpp"
+#include "camera_utilities.hpp"
 
 using namespace std;
 
-std::string orb_slam_dir = "/home/peter/ORB_SLAM2/";
+std::string orb_slam_dir = "/home/peter/REU_Workspace/ORB_SLAM2/";
 std::string orb_voc_path = orb_slam_dir + "Vocabulary/ORBvoc.bin";
-std::string output_dir = "../data/";
+std::string output_dir = "/home/peter/REU_Workspace/stereo_sensor_project/orbslam_code/data/";
 int session_num = 0;
 string session_dir = "session_0000/";
 std::string frame_dir;
@@ -186,7 +186,12 @@ void start_mono_slam(camera_utilities::Monocular_Camera &mono_camera){
     delete frame;
     SLAM.Shutdown();
     SLAM.SaveKeyFrameTrajectoryTUM(output_dir+session_dir+"mono_keyframe_trajectory.txt");
-    SLAM.SaveMap(output_dir+session_dir+"mono_data.map");
+    char save_map;
+    std::cout << "SAVE MAP? <Y/N>: ";
+    std::cin >> save_map;
+    if(save_map=='Y' or save_map=='y'){
+        SLAM.SaveMap(output_dir+session_dir+"mono_data.map");
+    }
     display_statistics(frame_times);
 }
 
@@ -234,7 +239,12 @@ void start_stereo_slam(camera_utilities::Stereo_Camera &stereo_camera){
     SLAM.Shutdown();
     stereo_camera.stop();
     SLAM.SaveTrajectoryTUM(output_dir+session_dir+"stereo_trajectory.txt");
-    SLAM.SaveMap(output_dir+session_dir+"stereo_data.map");
+        char save_map;
+    std::cout << "SAVE MAP? <Y/N>: ";
+    std::cin >> save_map;
+    if(save_map=='Y' or save_map=='y'){
+        SLAM.SaveMap(output_dir+session_dir+"stereo_data.map");
+    }
     display_statistics(frame_times);
 }
 

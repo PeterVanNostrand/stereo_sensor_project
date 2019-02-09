@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 2.8)
 project(ORB_SLAM2)
-set(ORB_SLAM2_DIR ~/ORB_SLAM2)
+set(ORB_SLAM2_DIR ~/REU_Workspace/ORB_SLAM2)
 
 IF(NOT CMAKE_BUILD_TYPE)
   SET(CMAKE_BUILD_TYPE Release)
@@ -62,7 +62,7 @@ ${ORB_SLAM2_DIR}/src/KeyFrameDatabase.cc
 ${ORB_SLAM2_DIR}/src/Sim3Solver.cc
 ${ORB_SLAM2_DIR}/src/Initializer.cc
 ${ORB_SLAM2_DIR}/src/Viewer.cc
-${PROJECT_SOURCE_DIR}/../camera_utilities.cpp
+${PROJECT_SOURCE_DIR}/camera_utilities.cpp
 )
 
 target_link_libraries(${PROJECT_NAME}
